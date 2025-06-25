@@ -18,36 +18,45 @@ import semanaMenuRoutes from './src/routes/semanaMenu.routes.js';
 
 const app = express();
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// ✅ Ruta raíz primero
-app.get('/', (req, res) => {
-  console.log('✅ Ruta raíz alcanzada');
-  res.send('🍽️ Eat and Run API is running');
+// 🔍 Logging de cada request
+app.use((req, res, next) => {
+  console.log(`➡️ ${req.method} ${req.originalUrl}`);
+  next();
 });
 
-// ✅ Rutas principales
+// Rutas
 app.use('/api/auth', authRoutes);
-app.use('/api/profile', profileRoutes);
-app.use('/api/menu/fixed', fixedMenuRoutes);
+app.use('/api', profileRoutes);
+app.use('/api/menu', fixedMenuRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/menu/daily', dailyMenuRoutes);
+app.use('/api/menu', dailyMenuRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/delivery', deliveryRoutes);
+app.use('/api', deliveryRoutes);
 app.use('/api/reports', kitchenReportRoutes);
 app.use('/api/kitchen/orders', kitchenOrderRoutes);
 app.use('/api/users', userProfileRoutes);
-app.use('/api/menu/images', imageRoutes); 
-app.use('/api/menu/week', semanaMenuRoutes);
-app.use('/api/perfil', userProfileRoutes); // ⚠️ duplicado pero si usás ambos, dejalo
+app.use('/api/menu', imageRoutes); 
+app.use('/api/menu', semanaMenuRoutes);
+app.use('/api/perfil', userProfileRoutes);
 
-// ❌ Middleware de ruta no encontrada
-app.use((req, res) => {
-  res.status(404).json({ message: 'Ruta no encontrada 🕵️‍♂️' });
+// Ruta raíz
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>🍽️ Eat and Run API is running</h1>
+    <p>✔️ Backend listo para recibir peticiones</p>
+  `);
 });
 
-// 🚀 Iniciar servidor
+// Ruta 404 para cualquier otra cosa
+app.use((req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada 😕' });
+});
+
+// Iniciar servidor
 app.listen(config.port, () => {
   console.log(`🚀 Server running at http://localhost:${config.port}`);
 });

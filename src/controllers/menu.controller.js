@@ -1,32 +1,31 @@
 import { pool } from '../db/index.js';
 import { getLunesProximaSemana } from '../utils/date.utils.js';
-import { getOrCreateSemanaActual } from '../utils/getOrCreateSemanaActual.js';
+import { getOrCreateSemanaActual, actualizarSemanaCompletaService  } from '../utils/getOrCreateSemanaActual.js';
+
+
+
 
 export const getSemanaActualController = async (req, res) => {
-  const lunes = getLunesProximaSemana();
-  const lunesISO = lunes.toISOString().slice(0, 10);
-
   try {
-    const result = await pool.query(
-      'SELECT * FROM menu_semana WHERE semana_inicio = $1',
-      [lunesISO]
-    );
+    const result = await pool.query(`
+      SELECT * FROM menu_semana
+      WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
+      ORDER BY semana_inicio DESC
+      LIMIT 1
+    `);
 
-    let semana = result.rows[0] || {
-      semana_inicio: lunesISO,
-      habilitado: false,
-      cierre: null
-    };
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No hay semana activa actual' });
+    }
 
-    const semana_fin = new Date(lunes);
-    semana_fin.setDate(semana_fin.getDate() + 4); // viernes de esa semana
+    const semana = result.rows[0];
 
     const ahora = new Date();
     const yaCerro = semana.cierre && new Date(semana.cierre) < ahora;
 
     res.json({
       semana_inicio: semana.semana_inicio,
-      semana_fin: semana_fin.toISOString().slice(0, 10),
+      semana_fin: semana.semana_fin,
       habilitado: semana.habilitado,
       cierre: semana.cierre,
       yaCerro
@@ -38,6 +37,7 @@ export const getSemanaActualController = async (req, res) => {
 };
 
 
+
 export const toggleSemanaHabilitadaController = async (req, res) => {
   try {
     if (!req.body || typeof req.body.habilitado !== 'boolean') {
@@ -46,11 +46,22 @@ export const toggleSemanaHabilitadaController = async (req, res) => {
 
     const { habilitado } = req.body;
 
-    const semana = await getOrCreateSemanaActual();
+    const semanaActual = await pool.query(`
+      SELECT * FROM menu_semana
+      WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
+      ORDER BY semana_inicio DESC
+      LIMIT 1
+    `);
+
+    if (semanaActual.rows.length === 0) {
+      return res.status(404).json({ error: 'No hay semana activa actual para habilitar' });
+    }
+
+    const semanaId = semanaActual.rows[0].id;
 
     await pool.query(
       `UPDATE menu_semana SET habilitado = $1 WHERE id = $2`,
-      [habilitado, semana.id]
+      [habilitado, semanaId]
     );
 
     res.json({ message: `Semana ${habilitado ? 'habilitada' : 'bloqueada'} correctamente` });
@@ -59,6 +70,7 @@ export const toggleSemanaHabilitadaController = async (req, res) => {
     res.status(500).json({ error: 'Error interno al actualizar la semana' });
   }
 };
+
 
 
 
@@ -93,5 +105,26 @@ export const actualizarCierreSemanaController = async (req, res) => {
   } catch (error) {
     console.error('❌ Error al actualizar fecha de cierre:', error);
     res.status(500).json({ error: 'Error interno al actualizar la fecha de cierre' });
+  }
+};
+
+export const actualizarSemanaCompleta = async (req, res) => {
+  try {
+    const { fecha_inicio, fecha_fin, cierre } = req.body;
+
+    if (!fecha_inicio || !fecha_fin || !cierre) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+
+    const result = await actualizarSemanaCompletaService(fecha_inicio, fecha_fin, cierre);
+
+    // 👇 CAMBIO ACÁ: devolvemos directamente la fila actualizada
+    res.json({
+      message: 'Semana actualizada correctamente',
+      semana: result.rows[0] // ✅ esto es lo que el frontend espera
+    });
+  } catch (err) {
+    console.error('❌ Error en actualizarSemanaCompletaController:', err);
+    res.status(500).json({ error: 'Error al actualizar semana', details: err.message });
   }
 };

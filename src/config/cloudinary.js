@@ -21,14 +21,28 @@ const storagePlatos = new CloudinaryStorage({
 });
 
 // 📎 Para comprobantes de pago
+// 📎 Para comprobantes de pago (PDFs e imágenes)
+// utils/cloudinary.js
 const storageComprobantes = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: 'eat-and-run/comprobantes',
-    allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
-    transformation: [{ width: 1000, crop: 'limit' }]
+  params: async (req, file) => {
+    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+
+    if (!allowedImageTypes.includes(file.mimetype)) {
+      throw new Error('Solo se permiten archivos JPG/PNG');
+    }
+
+    return {
+      folder: 'eat-and-run/comprobantes',
+      allowed_formats: ['jpg', 'jpeg', 'png'],
+      use_filename: true,
+      unique_filename: true,
+      resource_type: 'image' // Solo imágenes
+    };
   }
 });
+
+
 
 export {
   cloudinary,

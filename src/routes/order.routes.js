@@ -7,7 +7,10 @@ import {
   updateOrderStatusController,
   getOrderTrackingController,
   uploadComprobanteController,
-  getOrderByIdController 
+  getOrderByIdController,
+  updatePedidoFields,
+  updateOrderItemsController,
+getSignedComprobanteUrlController 
 } from '../controllers/order.controller.js';
 
 import { verifyToken } from '../middlewares/auth.middleware.js';
@@ -63,5 +66,16 @@ router.delete('/:id', authorizeRoles('admin'), async (req, res) => {
     res.status(500).json({ message: 'Error del servidor al eliminar el pedido' });
   }
 });
+
+// ✅ Primero las rutas específicas
+router.get('/comprobante/url', getSignedComprobanteUrlController);
+
+// Luego las rutas con parámetros dinámicos
+router.get('/:id', canViewOrder, getOrderByIdController);
+router.get('/:id/history', canViewOrder, getOrderTrackingController);
+router.post('/:id/comprobante', canViewOrder, uploadComprobante.single('comprobante'), uploadComprobanteController);
+
+
+
 
 export default router;

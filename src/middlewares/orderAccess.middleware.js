@@ -1,5 +1,7 @@
 import { pool } from '../db/index.js';
 
+
+
 export const canViewOrder = async (req, res, next) => {
   const userId = req.user.id;
   const userRole = req.user.role;
@@ -14,7 +16,7 @@ export const canViewOrder = async (req, res, next) => {
 
     const pedidoUserId = result.rows[0].user_id;
 
-    if ([99, 4].includes(userRole) || pedidoUserId === userId) {
+    if (['admin', 'moderador'].includes(userRole) || pedidoUserId === userId) {
       return next();
     }
 
@@ -28,8 +30,7 @@ export const canViewOrder = async (req, res, next) => {
 export const canModifyOrder = async (req, res, next) => {
   const userRole = req.user.role;
 
-  // Solo admins y moderadores (99, 4) pueden modificar
-  if ([99, 4].includes(userRole)) {
+  if (['admin', 'moderador'].includes(userRole)) {
     return next();
   }
 

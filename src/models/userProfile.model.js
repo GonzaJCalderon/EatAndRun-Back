@@ -23,13 +23,16 @@ export const updateUserProfile = async ({ user_id, telefono, direccion_principal
 
 export const getUserProfileById = async (user_id) => {
   const result = await pool.query(
-    `SELECT users.id, users.name, users.email, users.role_id,
-            user_profiles.telefono, user_profiles.direccion_principal, 
-            user_profiles.direccion_alternativa, user_profiles.apellido
-     FROM users 
+    `SELECT users.id, users.name, users.email,
+            user_profiles.apellido,
+            user_profiles.telefono,
+            user_profiles.direccion_principal,
+            user_profiles.direccion_alternativa
+     FROM users
      LEFT JOIN user_profiles ON users.id = user_profiles.user_id
      WHERE users.id = $1`,
     [user_id]
   );
-  return result.rows[0];
+
+  return result.rows[0]; // ✅ devuelve incluso si no hay perfil
 };

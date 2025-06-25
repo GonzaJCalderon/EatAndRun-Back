@@ -1,34 +1,87 @@
 import { pool } from '../db/index.js';
 
-// Crear nuevo pedido
-export const createOrder = async (userId, items, total, extra = {}) => {
-  const {
-    metodoPago = null,
-    observaciones = null,
-    comprobanteUrl = null,
-    comprobanteNombre = null,
-    fechaEntrega = null
-  } = extra;
+export const createOrder = async (userId, items, total, {
+  fechaEntrega,
+  observaciones,
+  metodoPago,
+  tipoMenu,
+  comprobanteUrl = null
+}) => {
+  const client = await pool.connect();
 
-  const result = await pool.query(
-    `INSERT INTO orders 
-     (user_id, total, metodo_pago, observaciones, comprobante_url, comprobante_nombre, fecha_entrega)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) 
-     RETURNING *`,
-    [userId, total, metodoPago, observaciones, comprobanteUrl, comprobanteNombre, fechaEntrega]
-  );
+  try {
+    await client.query('BEGIN');
 
-  const orderId = result.rows[0].id;
+    // 1️⃣ Insertar orden base
+    const orderInsert = await client.query(`
+      INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id
+    `, [userId, total, fechaEntrega, observaciones, metodoPago, tipoMenu, comprobanteUrl]);
 
-  for (const item of items) {
-    const tipo = item.item_type === 'fixed' ? 'fijo' : item.item_type;
+    const orderId = orderInsert.rows[0].id;
 
-    await pool.query(
-      'INSERT INTO order_items (order_id, item_type, item_id, quantity, dia) VALUES ($1, $2, $3, $4, $5)',
-      [orderId, tipo, item.item_id, item.quantity, item.dia || null]
-    );
+    // 2️⃣ Insertar cada item con nombre resuelto
+    for (const item of items) {
+      const { item_type, item_id, quantity, dia, precio } = item;
+
+      if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) {
+        console.warn(`⚠️ Tipo de ítem no soportado: ${item_type}`);
+        continue;
+      }
+
+      let finalItemId = null;
+      let finalItemName = null;
+
+      // 🥧 Casos especiales como "tarta" que usan string como nombre
+      if (item_type === 'tarta' || item_type === 'skip') {
+        finalItemName = String(item_id);
+      }
+
+      // 📦 Si es un ID numérico (daily, fijo, extra), obtener nombre desde DB
+      if (['daily', 'fijo', 'extra'].includes(item_type)) {
+        finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
+
+        const tabla =
+          item_type === 'daily' ? 'daily_menu' :
+          item_type === 'fijo' ? 'fixed_menu' :
+          item_type === 'extra' ? 'menu_extras' :
+          null;
+
+        if (tabla && finalItemId !== null) {
+          const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
+          finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
+        }
+      }
+
+      // 💾 Insertar el ítem final
+      await client.query(`
+        INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        orderId,
+        item_type,
+        finalItemId,
+        finalItemName,
+        quantity,
+        dia || null,
+        precio || null
+      ]);
+    }
+
+    await client.query('COMMIT');
+
+    return { id: orderId, message: 'Pedido creado correctamente' };
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Error al crear la orden en DB:', err);
+    throw err;
+  } finally {
+    client.release();
   }
 };
+
 
 export const getOrdersByUser = async (userId) => {
   const result = await pool.query(
@@ -47,11 +100,18 @@ export const getAllOrders = async () => {
       o.observaciones,
       o.comprobante_url,
       o.comprobante_nombre,
+      o.metodo_pago,
+      o.tipo_menu,
+      o.delivery_name,
+      o.delivery_phone,
+
       u.name AS nombre,
+      u.last_name AS apellido,
       u.email,
       up.telefono,
       up.direccion_principal,
       up.direccion_secundaria,
+
       json_agg(json_build_object(
         'item_type', oi.item_type,
         'item_id', oi.item_id,
@@ -70,16 +130,36 @@ export const getAllOrders = async () => {
         'quantity', oi.quantity,
         'dia', oi.dia
       )) AS items
+
     FROM orders o
     JOIN users u ON o.user_id = u.id
     LEFT JOIN user_profiles up ON u.id = up.user_id
     LEFT JOIN order_items oi ON o.id = oi.order_id
-    GROUP BY o.id, u.name, u.email, up.telefono, up.direccion_principal, up.direccion_secundaria
+
+    GROUP BY 
+      o.id,
+      o.fecha_entrega,
+      o.status,
+      o.observaciones,
+      o.comprobante_url,
+      o.comprobante_nombre,
+      o.metodo_pago,
+      o.tipo_menu,
+      o.delivery_name,
+      o.delivery_phone,
+      u.name,
+      u.last_name,
+      u.email,
+      up.telefono,
+      up.direccion_principal,
+      up.direccion_secundaria
+
     ORDER BY o.fecha_entrega DESC
   `);
 
   return result.rows.map(parsePedido);
 };
+
 
 
 
@@ -163,8 +243,8 @@ export const getOrdersByDelivery = async (deliveryId) => {
   CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
 LEFT JOIN menu_fixed mf ON mf.id = 
   CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-LEFT JOIN menu_extras me ON me.id = 
-  CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
+LEFT JOIN menu_extras me ON oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' AND me.id = oi.item_id::INTEGER
+
 
     WHERE o.delivery_id = $1
     GROUP BY o.id, u.name, u.email, up.telefono, up.direccion_principal
@@ -289,6 +369,7 @@ export const getUnassignedOrdersFromDB = async () => {
 
 
 // Función utilitaria
+// Función utilitaria
 function parsePedido(row) {
   const pedido = {
     diarios: {},
@@ -296,25 +377,24 @@ function parsePedido(row) {
     tartas: {}
   };
 
-row.items.forEach((item) => {
-  const tipo = item.item_type;
-  const nombre = item.item_name || item.item_id;
-  const cantidad = item.quantity;
+  row.items.forEach((item) => {
+    const tipo = item.item_type;
+    const nombre = item.item_name || item.item_id;
+    const cantidad = item.quantity;
+    const dia = item.dia;
 
-  if (!item.dia) return; // ✅ Ignorar ítems sin día
-  const dia = item.dia;
-
-  if (tipo === 'daily' || tipo === 'fijo') {
-    if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-    pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-  } else if (tipo === 'extra') {
-    if (!pedido.extras[dia]) pedido.extras[dia] = {};
-    pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
-  } else if (tipo === 'tarta') {
-    pedido.tartas[nombre] = cantidad;
-  }
-});
-
+    if (tipo === 'tarta') {
+      pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
+    } else if (dia) {
+      if (tipo === 'daily' || tipo === 'fijo') {
+        if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
+        pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
+      } else if (tipo === 'extra') {
+        if (!pedido.extras[dia]) pedido.extras[dia] = {};
+        pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
+      }
+    }
+  });
 
   return {
     id: row.id,
@@ -323,15 +403,22 @@ row.items.forEach((item) => {
     observaciones: row.observaciones,
     comprobanteUrl: row.comprobante_url,
     comprobanteNombre: row.comprobante_nombre,
+    metodoPago: row.metodo_pago || null, // ✅ Añadido campo clave
     usuario: {
-      nombre: row.nombre,
+      nombre: `${row.nombre} ${row.apellido || ''}`.trim(), // por si no hay apellido
       email: row.email,
       telefono: row.telefono,
-      direccion: row.direccion_principal
+      direccion: row.direccion_principal,
+      direccionSecundaria: row.direccion_secundaria || ''
+    },
+    delivery: {
+      nombre: row.delivery_name || null,
+      telefono: row.delivery_phone || null
     },
     pedido
   };
 }
+
 
 
 
@@ -342,82 +429,135 @@ export const getOrdersByDeliveryId = async (deliveryId) => {
 };
 
 
-export const getPedidosConItems = async (whereSQL = '', values = []) => {
-  const result = await pool.query(`
+export const getPedidosConItems = async (filtros = '', valores = []) => {
+  // 1️⃣ Obtener todos los pedidos
+  const pedidosRes = await pool.query(`
     SELECT 
       o.*,
       u.name AS usuario_nombre,
-      u.email,
-      up.telefono,
-      up.direccion_principal,
-      json_agg(json_build_object(
-        'item_type', oi.item_type,
-        'item_id', oi.item_id,
-        'item_name', 
-          CASE 
-            WHEN oi.item_type = 'daily' THEN dm.name
-            WHEN oi.item_type = 'fijo' THEN fm.name
-            WHEN oi.item_type = 'extra' THEN me.name
-            WHEN oi.item_type = 'tarta' THEN oi.item_id
-            ELSE NULL
-          END,
-        'quantity', oi.quantity,
-        'dia', oi.dia
-      )) AS items
+      u.email AS usuario_email,
+      u.role AS usuario_rol,
+      d.name AS repartidor_nombre,
+      up.telefono AS usuario_telefono,
+      up.direccion_principal AS direccion_principal,
+      up.direccion_secundaria AS direccion_secundaria,
+      up.apellido AS usuario_apellido -- ✅ Agregado apellido
     FROM orders o
-    JOIN users u ON o.user_id = u.id
-    LEFT JOIN user_profiles up ON u.id = up.user_id
-    LEFT JOIN order_items oi ON oi.order_id = o.id
-    LEFT JOIN daily_menu dm ON dm.id = 
-      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-    LEFT JOIN fixed_menu fm ON fm.id = 
-      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-    LEFT JOIN menu_extras me ON me.id = 
-      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-    ${whereSQL}
-    GROUP BY o.id, u.name, u.email, up.telefono, up.direccion_principal
+    LEFT JOIN users u ON o.user_id = u.id
+    LEFT JOIN users d ON o.assigned_to = d.id
+    LEFT JOIN user_profiles up ON up.user_id = u.id
+    ${filtros}
     ORDER BY o.created_at DESC
-  `, values);
+  `, valores);
 
-  return result.rows.map(row => {
-    const pedido = {
-      diarios: {},
-      extras: {},
-      tartas: {}
-    };
+  const pedidos = pedidosRes.rows;
+  if (pedidos.length === 0) return [];
 
-    row.items.forEach((item) => {
-      const tipo = item.item_type;
-      const nombre = item.item_name || item.item_id;
-      const dia = item.dia || 'sin_dia';
-      const cantidad = Number(item.quantity);
-      if (isNaN(cantidad)) return;
+  // 2️⃣ Obtener todos los ítems en una sola query
+  const pedidoIds = pedidos.map(p => p.id);
+  const itemsRes = await pool.query(`
+    SELECT 
+      oi.order_id,
+      oi.item_type, 
+      oi.item_id, 
+      oi.item_name,
+      oi.quantity, 
+      oi.dia,
+      COALESCE(
+        CASE 
+          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
+          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
+          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
+          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+          ELSE NULL
+        END,
+        oi.item_name,
+        CONCAT('ID:', oi.item_id),
+        'Desconocido'
+      ) AS resolved_name
+    FROM order_items oi
+    LEFT JOIN menu_extras me ON me.id = 
+      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    LEFT JOIN menu_daily md ON md.id = 
+      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    LEFT JOIN menu_fixed mf ON mf.id = 
+      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    WHERE oi.order_id = ANY($1::int[])
+  `, [pedidoIds]);
 
-      if (tipo === 'daily' || tipo === 'fijo') {
-        if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-        pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-      } else if (tipo === 'extra') {
-        if (!pedido.extras[dia]) pedido.extras[dia] = {};
-        pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
-      } else if (tipo === 'tarta') {
-        pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
-      }
-    });
+  // 3️⃣ Agrupar ítems por pedido
+  const itemsPorPedido = {};
+  for (const item of itemsRes.rows) {
+    const id = item.order_id;
+    if (!itemsPorPedido[id]) itemsPorPedido[id] = [];
+    itemsPorPedido[id].push(item);
+  }
+
+  // 4️⃣ Armar la estructura final
+  const pedidosConItems = pedidos.map(pedido => {
+    const items = itemsPorPedido[pedido.id] || [];
 
     return {
-      id: row.id,
+      ...pedido,
       usuario: {
-        nombre: row.usuario_nombre,
-        email: row.email,
-        telefono: row.telefono,
-        direccion: row.direccion_principal,
+        nombre: pedido.usuario_nombre,
+        apellido: pedido.usuario_apellido || '', // ✅ agregado apellido
+        email: pedido.usuario_email,
+        telefono: pedido.usuario_telefono || '',
+        direccion: pedido.direccion_principal || '',
+        direccionSecundaria: pedido.direccion_secundaria || '',
+        rol: pedido.usuario_rol
       },
-      estado: row.status,
-      fecha: row.fecha_entrega,
-      observaciones: row.observaciones,
-      comprobanteUrl: row.comprobante_url,
-      comprobanteNombre: row.comprobante_nombre,
-      pedido
+      repartidor: pedido.repartidor_nombre || null,
+      pedido: agruparItemsPorTipo(items),
+      estado: pedido.status,
+      fecha: pedido.fecha_entrega,
+      observaciones: pedido.observaciones,
+      comprobanteUrl: pedido.comprobante_url,
+      comprobanteNombre: pedido.comprobante_nombre,
+      tipo_menu: pedido.tipo_menu || 'usuario'
     };
   });
+
+  return pedidosConItems;
 };
+
+
+
+// agrupadorItemsPorTipo.js
+function agruparItemsPorTipo(items) {
+  const agrupados = {
+    diarios: {},
+    extras: {},
+    tartas: {}
+  };
+
+  for (const item of items) {
+    const nombre = item.resolved_name || item.item_name || 'Desconocido';
+    const tipo = item.item_type;
+    const dia = item.dia || 'sin_dia';
+
+    const cantidad = Number(item.quantity);
+    if (isNaN(cantidad)) continue;
+
+    if (['daily', 'fijo'].includes(tipo)) {
+      if (!agrupados.diarios[dia]) agrupados.diarios[dia] = {};
+      agrupados.diarios[dia][nombre] = (agrupados.diarios[dia][nombre] || 0) + cantidad;
+    } else if (tipo === 'extra') {
+      if (!agrupados.extras[dia]) agrupados.extras[dia] = {};
+      agrupados.extras[dia][nombre] = (agrupados.extras[dia][nombre] || 0) + cantidad;
+    } else if (tipo === 'tarta') {
+      agrupados.tartas[nombre] = (agrupados.tartas[nombre] || 0) + cantidad;
+    }
+  }
+
+  return agrupados;
+}
+
+
+
+
+
+
+
+

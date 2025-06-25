@@ -101,7 +101,6 @@ export const selfAssignOrder = async (req, res) => {
   }
 };
 
-
 export const getAllOrders = async (req, res) => {
   try {
     const pedidos = await getPedidosConItems(); // sin filtro
@@ -202,3 +201,22 @@ export const markAsNotDelivered = async (req, res) => {
     res.status(500).json({ error: 'Error al registrar el pedido como no entregado' });
   }
 };
+
+export const buscarDeliveries = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, email, (
+        SELECT telefono FROM user_profiles up WHERE up.user_id = u.id
+      ) AS telefono
+      FROM users u
+      WHERE role_id = 3 AND (LOWER(name) LIKE LOWER($1) OR LOWER(email) LIKE LOWER($1))
+      LIMIT 10
+    `, [`%${req.query.q || ''}%`]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('❌ Error buscando deliveries:', err);
+    res.status(500).json({ error: 'Error al buscar deliveries' });
+  }
+};
+

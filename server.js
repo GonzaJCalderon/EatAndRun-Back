@@ -33,7 +33,7 @@ app.use('/api/kitchen/orders', kitchenOrderRoutes);
 app.use('/api/users', userProfileRoutes);
 app.use('/api/menu', imageRoutes); 
 app.use('/api/menu', semanaMenuRoutes);
-
+app.use('/api/perfil', userProfileRoutes);
 
 
 

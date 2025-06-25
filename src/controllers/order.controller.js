@@ -8,80 +8,75 @@ import {
   saveOrderComprobante
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
-import { getLunesProximaSemana } from '../utils/date.utils.js'
+import { getLunesSemanaActual } from '../utils/date.utils.js';
+
+
+
+// ✅ Controlador para generar URL firmada de Cloudinary
+// controllers/order.controller.js
+
+export const getSignedComprobanteUrlController = async (req, res) => {
+  const { public_id } = req.query;
+
+  if (!public_id) {
+    return res.status(400).json({ error: 'Falta el public_id del comprobante' });
+  }
+
+  try {
+    const url = cloudinary.url(public_id, {
+      type: 'authenticated',         // 🔒 acceso protegido
+      resource_type: 'image',        // ✅ ya no usás PDFs
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 60 * 60
+    });
+
+    res.json({ signedUrl: url });
+  } catch (err) {
+    console.error('❌ Error generando URL firmada:', err);
+    res.status(500).json({ error: 'No se pudo generar la URL firmada' });
+  }
+};
 
 
 
 export const createOrderController = async (req, res) => {
-  const { items, total, fecha_entrega, observaciones } = req.body;
+  const { items, total, observaciones, metodoPago, fecha_entrega } = req.body;
   const userId = req.user.id;
+  const tipo_menu = req.user.role || 'usuario';
 
-  // 🔐 Validación base
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Items inválidos o vacíos' });
-  }
+  if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
+  if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
 
-  if (!fecha_entrega) {
-    return res.status(400).json({ error: 'Falta la fecha de entrega' });
-  }
-
-  // 🔎 Validación detallada de cada item
   for (const i of items) {
     if (!i.item_type || typeof i.quantity === 'undefined') {
       return res.status(400).json({ error: 'Item malformado', item: i });
     }
-
-    if (['daily', 'fijo', 'extra'].includes(i.item_type)) {
-      if (!i.dia) {
-        return res.status(400).json({ error: 'Falta día en item', item: i });
-      }
-
-      if (!i.item_id) {
-        return res.status(400).json({ error: 'Falta item_id en item', item: i });
-      }
-
-      if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
-        return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
-      }
+    if (['daily','fijo','extra'].includes(i.item_type) && (!i.dia || !i.item_id)) {
+      return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
     }
-
-    if (i.item_type === 'tarta') {
-      if (!i.item_id) {
-        return res.status(400).json({ error: 'Tarta sin item_id', item: i });
-      }
+    if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
+      return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
     }
-
-    if (i.item_type === 'skip') {
-      if (!i.dia) {
-        return res.status(400).json({ error: 'Skip sin día', item: i });
-      }
+    if (i.item_type === 'tarta' && !i.item_id) {
+      return res.status(400).json({ error: 'Tarta sin item_id', item: i });
     }
   }
 
   try {
-    // 🔄 Validar semana activa
-    const lunesSemana = getLunesProximaSemana().toISOString().slice(0, 10);
-    const result = await pool.query(
-      'SELECT * FROM menu_semana WHERE semana_inicio = $1',
-      [lunesSemana]
-    );
+const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
+    const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
     const semana = result.rows[0];
-
-    if (!semana || !semana.habilitado) {
-      return res.status(400).json({ error: 'La semana no está habilitada para pedidos' });
-    }
-
+    if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
     if (semana.cierre && new Date(semana.cierre) < new Date()) {
-      return res.status(400).json({ error: '⏰ El plazo para hacer pedidos ya cerró' });
+      return res.status(400).json({ error: '⏰ El plazo ya cerró' });
     }
 
-    // 💾 Guardar pedido en DB
     const order = await createOrder(userId, items, total, {
       fechaEntrega: fecha_entrega,
-      observaciones
+      observaciones,
+      metodoPago,
+      tipoMenu: tipo_menu,
     });
-
-    console.log('✅ Pedido creado correctamente:', order);
 
     res.status(201).json(order);
   } catch (err) {
@@ -89,6 +84,11 @@ export const createOrderController = async (req, res) => {
     res.status(500).json({ error: 'Error al crear el pedido', details: err.message });
   }
 };
+
+
+
+
+
 
 
 
@@ -123,40 +123,30 @@ function calcularFechaEntregaDesdeDia(diaTexto, fechaEntrega) {
 
 export const getAllOrdersController = async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        o.*,
-        u.name AS usuario_nombre,
-        u.email,
-        up.telefono,
-        up.direccion_principal,
-        json_agg(json_build_object(
-          'item_type', oi.item_type,
-          'item_id', oi.item_id,
-          'item_name', 
-            CASE 
-              WHEN oi.item_type = 'daily' THEN dm.name
-              WHEN oi.item_type = 'fijo' THEN fm.name
-              WHEN oi.item_type = 'extra' THEN me.name
-              WHEN oi.item_type = 'tarta' THEN oi.item_id
-              ELSE NULL
-            END,
-          'quantity', oi.quantity,
-          'dia', oi.dia
-        )) AS items
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      LEFT JOIN daily_menu dm ON dm.id = 
-        CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-      LEFT JOIN fixed_menu fm ON fm.id = 
-        CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-      LEFT JOIN menu_extras me ON me.id = 
-        CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::INTEGER ELSE NULL END
-      GROUP BY o.id, u.name, u.email, up.telefono, up.direccion_principal
-      ORDER BY o.created_at DESC
-    `);
+  const result = await pool.query(`
+  SELECT 
+    o.*,
+    o.tipo_menu,
+    u.name AS usuario_nombre,
+    up.apellido AS usuario_apellido,
+    u.email,
+    up.telefono,
+    up.direccion_principal,
+    json_agg(json_build_object(
+      'item_type', oi.item_type,
+      'item_id', oi.item_id,
+      'item_name', oi.item_name,
+      'quantity', oi.quantity,
+      'dia', oi.dia
+    )) AS items
+  FROM orders o
+  JOIN users u ON o.user_id = u.id
+  LEFT JOIN user_profiles up ON u.id = up.user_id
+  LEFT JOIN order_items oi ON oi.order_id = o.id
+  GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal
+  ORDER BY o.created_at DESC
+`);
+
 
     const pedidos = result.rows.map((row) => {
       const pedido = {
@@ -167,12 +157,11 @@ export const getAllOrdersController = async (req, res) => {
 
       row.items.forEach((item) => {
         const tipo = item.item_type;
-        const nombre = item.item_name || item.item_id;
+        const nombre = item.item_name;
+        if (!nombre) return;
         const dia = item.dia || 'sin_dia';
-
-        // 🔐 Aseguramos que cantidad siempre sea un número
         const cantidad = Number(item.quantity);
-        if (isNaN(cantidad)) return; // si no es número, lo descartamos
+        if (isNaN(cantidad)) return;
 
         if (tipo === 'daily' || tipo === 'fijo') {
           if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
@@ -187,13 +176,16 @@ export const getAllOrdersController = async (req, res) => {
 
       return {
         id: row.id,
-        usuario: {
-          nombre: row.usuario_nombre,
-          email: row.email,
-          telefono: row.telefono,
-          direccion: row.direccion_principal,
-          // ⚠️ Se eliminó 'subdireccion' porque daba error de columna
-        },
+        tipo_menu: row.tipo_menu,
+usuario: {
+  nombre: row.usuario_nombre,
+  apellido: row.usuario_apellido, // 👈 asegurate que la uses
+  email: row.email,
+  telefono: row.telefono,
+  direccion: row.direccion_principal,
+},
+
+
         estado: row.status,
         fecha: row.fecha_entrega,
         observaciones: row.observaciones,
@@ -209,6 +201,7 @@ export const getAllOrdersController = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
+
 
 
 
@@ -263,7 +256,6 @@ export const uploadComprobanteController = async (req, res) => {
   }
 };
 
-// Crear pedido con subida de imagen
 export const createOrderWithUploadController = async (req, res) => {
   const { items, total, fecha_entrega, observaciones } = req.body;
   const userId = req.user.id;
@@ -282,13 +274,10 @@ export const createOrderWithUploadController = async (req, res) => {
 
   try {
     let comprobanteUrl = null;
-    if (req.file) {
-      const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'eat-and-run/comprobantes',
-        use_filename: true,
-        unique_filename: true
-      });
-      comprobanteUrl = uploadResult.secure_url;
+
+    // ✅ CloudinaryStorage ya subió el archivo. Usamos el resultado:
+    if (req.file && req.file.path) {
+      comprobanteUrl = req.file.path; // .path ya es el secure_url en CloudinaryStorage
     }
 
     const pedido = await createOrder(userId, itemsParsed, total, {
@@ -299,10 +288,15 @@ export const createOrderWithUploadController = async (req, res) => {
 
     res.status(201).json({ message: 'Pedido creado con comprobante', pedido });
   } catch (err) {
+    if (err.message.includes('Solo se permiten archivos')) {
+      return res.status(400).json({ error: 'Solo se permiten imágenes JPG o PNG como comprobante' });
+    }
+
     console.error('❌ Error al crear pedido con comprobante:', err);
     res.status(500).json({ error: 'No se pudo crear el pedido', details: err.message });
   }
 };
+
 
 
 export const getOrderByIdController = async (req, res) => {
@@ -329,3 +323,64 @@ export const getOrderByIdController = async (req, res) => {
 };
 
 
+export const updatePedidoFields = async (req, res) => {
+  const { id } = req.params;
+  const { observaciones, extras } = req.body;
+
+  try {
+    await pool.query(
+      'UPDATE pedidos SET observaciones = $1, extras_text = $2 WHERE id = $3',
+      [observaciones, extras, id]
+    );
+    res.json({ message: 'Actualizado correctamente' });
+  } catch (err) {
+    console.error('❌ Error al actualizar pedido:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
+
+
+export const updateOrderItemsController = async (req, res) => {
+  const { id } = req.params;
+  const { items } = req.body; // items es un array completo reemplazando los actuales
+
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: 'Items inválidos. Esperado array.' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 🚮 Borra los ítems anteriores de este pedido
+    await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+
+    // ➕ Inserta los nuevos ítems
+    for (const item of items) {
+      const { item_type, item_id, item_name, quantity, dia, precio_unitario } = item;
+
+      await client.query(`
+        INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        id,
+        item_type,
+        !isNaN(parseInt(item_id)) ? parseInt(item_id) : null,
+        item_name,
+        quantity,
+        dia || null,
+        precio_unitario || null
+      ]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Ítems actualizados correctamente' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Error al actualizar ítems:', err);
+    res.status(500).json({ error: 'Error al actualizar ítems', details: err.message });
+  } finally {
+    client.release();
+  }
+};

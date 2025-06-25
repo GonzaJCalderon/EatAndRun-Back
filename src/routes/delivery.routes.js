@@ -9,7 +9,8 @@ import {
   selfAssignOrder,
   getAllOrders,
   updateDeliveryOrderStatus,
-  getDeliveryHistory 
+  getDeliveryHistory,
+  buscarDeliveries 
 } from '../controllers/delivery.controller.js';
 
 const router = express.Router();
@@ -35,6 +36,9 @@ router.get('/admin/orders', verifyToken, authorizeRoles('admin'), getAllOrders);
 
 // 📜 Historial de entregas del repartidor
 router.get('/delivery/history', verifyToken, authorizeRoles('delivery'), getDeliveryHistory);
+
+router.get('/deliveries/search', verifyToken, authorizeRoles('admin'), buscarDeliveries);
+
 
 
 export default router;

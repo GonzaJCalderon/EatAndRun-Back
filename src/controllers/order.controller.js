@@ -384,3 +384,21 @@ export const updateOrderItemsController = async (req, res) => {
     client.release();
   }
 };
+
+export const deleteUserById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    return res.status(200).json({ message: 'Usuario eliminado correctamente' });
+  } catch (error) {
+    console.error('❌ Error al eliminar usuario:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
+  }
+};
+

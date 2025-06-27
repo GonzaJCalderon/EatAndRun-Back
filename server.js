@@ -18,8 +18,25 @@ import semanaMenuRoutes from './src/routes/semanaMenu.routes.js';
 
 const app = express();
 
-// Middlewares
-app.use(cors());
+// ✅ CORS configurado para producción
+const allowedOrigins = [
+  'https://eatandrun.shop',    // 👈 tu frontend en Hostinger
+  'http://localhost:5173'      // 👈 útil para desarrollo local
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir peticiones sin origin (como Postman) o verificadas
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`⛔ CORS: Origen no permitido -> ${origin}`));
+    }
+  },
+  credentials: true
+}));
+
+// ✅ Middleware para JSON
 app.use(express.json());
 
 // 🔍 Logging de cada request
@@ -28,7 +45,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rutas
+// ✅ Rutas API
 app.use('/api/auth', authRoutes);
 app.use('/api', profileRoutes);
 app.use('/api/menu', fixedMenuRoutes);
@@ -39,11 +56,11 @@ app.use('/api', deliveryRoutes);
 app.use('/api/reports', kitchenReportRoutes);
 app.use('/api/kitchen/orders', kitchenOrderRoutes);
 app.use('/api/users', userProfileRoutes);
-app.use('/api/menu', imageRoutes); 
+app.use('/api/menu', imageRoutes);
 app.use('/api/menu', semanaMenuRoutes);
 app.use('/api/perfil', userProfileRoutes);
 
-// Ruta raíz
+// ✅ Ruta raíz
 app.get('/', (req, res) => {
   res.send(`
     <h1>🍽️ Eat and Run API is running</h1>
@@ -51,12 +68,12 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Ruta 404 para cualquier otra cosa
+// ❌ Ruta 404 para todo lo demás
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada 😕' });
 });
 
-// Iniciar servidor
+// ✅ Iniciar servidor
 app.listen(config.port, () => {
   console.log(`🚀 Server running at http://localhost:${config.port}`);
 });

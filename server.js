@@ -55,7 +55,9 @@ app.use('/api/reports', kitchenReportRoutes);
 app.use('/api/kitchen/orders', kitchenOrderRoutes);
 app.use('/api/users', userProfileRoutes)
 app.use('/api/fixed', fixedMenuRoutes);     
-
+app.use('/api/daily', dailyMenuRoutes);
+app.use('/api/semana', semanaMenuRoutes);
+app.use('/api/images', imageRoutes);
 app.use('/api/perfil', userProfileRoutes);
 
 // ✅ Ruta raíz

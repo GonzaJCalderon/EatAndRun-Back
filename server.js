@@ -48,16 +48,14 @@ app.use((req, res, next) => {
 // ✅ Rutas API
 app.use('/api/auth', authRoutes);
 app.use('/api', profileRoutes);
-app.use('/api/menu', fixedMenuRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/menu', dailyMenuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api', deliveryRoutes);
 app.use('/api/reports', kitchenReportRoutes);
 app.use('/api/kitchen/orders', kitchenOrderRoutes);
-app.use('/api/users', userProfileRoutes);
-app.use('/api/menu', imageRoutes);
-app.use('/api/menu', semanaMenuRoutes);
+app.use('/api/users', userProfileRoutes)
+app.use('/api/fixed', fixedMenuRoutes);     
+
 app.use('/api/perfil', userProfileRoutes);
 
 // ✅ Ruta raíz

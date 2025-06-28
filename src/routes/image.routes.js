@@ -6,6 +6,6 @@ import { uploadPlato } from '../middlewares/upload.middleware.js';
 
 const router = express.Router();
 
-router.post('/upload-image', verifyToken, uploadPlato.single('image'), subirImagenMenuController);
+router.post('/upload', verifyToken, uploadPlato.single('image'), subirImagenMenuController);
 
 export default router;

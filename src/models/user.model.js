@@ -44,15 +44,16 @@ export const getAllUsers = async () => {
     ORDER BY u.id ASC
   `);
 
-  return result.rows.map(user => ({
-    id: user.id,
-    nombre: user.name,
-    email: user.email,
-    rol: roleMap[user.role_id] || "usuario",
-    telefono: user.telefono,
-    direccion_principal: user.direccion_principal,
-    direccion_secundaria: user.direccion_secundaria
-  }));
+ return result.rows.map(user => ({
+  id: user.id,
+  nombre: user.name,
+  email: user.email,
+  rol: roleMap[user.role_id] || "usuario",
+  telefono: user.telefono,
+  direccion_principal: user.direccion_principal,
+  direccion_secundaria: user.direccion_secundaria
+}));
+
 };
 
 

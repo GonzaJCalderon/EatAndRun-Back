@@ -68,26 +68,21 @@ export const createUser = async (req, res) => {
     res.status(500).json({ error: "Error al crear usuario" });
   }
 };
-
-
 export const deleteUserById = async (req, res) => {
-  const { id } = req.params;
+  const id = Number(req.params.id);
 
   if (!id || isNaN(id)) {
     return res.status(400).json({ message: 'ID inválido' });
   }
 
   try {
-    // Verificá si hay pedidos asociados
+    // Verifica si tiene pedidos
     const pedidos = await pool.query('SELECT 1 FROM orders WHERE user_id = $1 LIMIT 1', [id]);
     if (pedidos.rowCount > 0) {
-      return res.status(409).json({ message: '❌ No se puede eliminar: el usuario tiene pedidos asociados.' });
+      return res.status(409).json({ message: '❌ No se puede eliminar: tiene pedidos asociados' });
     }
 
-    // Eliminar perfil
     await pool.query('DELETE FROM user_profiles WHERE user_id = $1', [id]);
-
-    // Eliminar usuario
     const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
 
     if (result.rowCount === 0) {
@@ -96,9 +91,17 @@ export const deleteUserById = async (req, res) => {
 
     return res.status(200).json({ message: '✅ Usuario eliminado correctamente' });
   } catch (error) {
-    console.error('❌ Error al eliminar usuario:', error);
-    return res.status(500).json({ message: 'Error interno del servidor', detail: error.detail });
+    console.error('❌ Error al eliminar usuario:', {
+      message: error.message,
+      detail: error.detail,
+      hint: error.hint,
+      code: error.code,
+      stack: error.stack
+    });
+
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
 
 

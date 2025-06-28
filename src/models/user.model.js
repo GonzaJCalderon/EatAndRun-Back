@@ -28,7 +28,7 @@ export const findUserByEmail = async (email) => {
   return result.rows[0];
 };
 
-export const getAllUsersQuery = async () => {
+export const getAllUsers = async () => {
   const result = await pool.query(`
     SELECT 
       u.id, 

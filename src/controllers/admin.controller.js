@@ -2,12 +2,14 @@ import {
   getAllUsers as getAllUsersQuery,
   updateUserRole as updateUserRoleQuery
 } from '../models/user.model.js';
+import { pool } from '../db/index.js';
+
 
 export const getAllUsers = async (req, res) => {
   try {
     const { role } = req.query;
 
-    const allUsers = await getAllUsersQuery(); // ✅ Usa la función bien hecha
+    const allUsers = await getAllUsersQuery(); // ✅ nombre corregido
     const filtered = role
       ? allUsers.filter(u => u.rol === role)
       : allUsers;
@@ -68,3 +70,40 @@ export const createUser = async (req, res) => {
     res.status(500).json({ error: "Error al crear usuario" });
   }
 };
+
+export const deleteUserById = async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ message: 'ID inválido' });
+  }
+
+  try {
+    // 🔥 Solo se borra el usuario (lo demás se borra en cascada)
+    const result = await pool.query(
+      'DELETE FROM users WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    return res.status(200).json({ message: '✅ Usuario eliminado correctamente' });
+  } catch (error) {
+    console.error('❌ Error al eliminar usuario:', {
+      message: error.message,
+      detail: error.detail,
+      stack: error.stack
+    });
+
+    return res.status(500).json({
+      message: 'Error interno del servidor',
+      detail: error.detail || error.message
+    });
+  }
+};
+
+
+
+

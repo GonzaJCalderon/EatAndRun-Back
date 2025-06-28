@@ -3,11 +3,11 @@ import { getSemanaActualController, toggleSemanaHabilitadaController, actualizar
 
 const router = Router();
 
-router.get('/semana/actual', getSemanaActualController);
+router.get('/actual', getSemanaActualController);
 // 🔧 Nueva ruta para habilitar / deshabilitar semana
-router.put('/semana/habilitar', toggleSemanaHabilitadaController);
+router.put('/habilitar', toggleSemanaHabilitadaController);
 // 🔧 Nueva ruta para actualizar fecha de cierre
-router.put('/semana/cierre', actualizarCierreSemanaController);
-router.put('/semana', actualizarSemanaCompleta);
+router.put('/cierre', actualizarCierreSemanaController);
+router.put('/', actualizarSemanaCompleta);
 
 export default router;

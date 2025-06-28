@@ -22,10 +22,10 @@ const router = express.Router();
 
 // 👤 Usuario / Empresa / Admin: ver su menú del día
 // 👤 Usuario / Empresa / Admin: ver su menú del día
-router.get('/daily', verifyToken, authorizeRoles('usuario', 'empresa', 'admin', 'delivery'), getDailyMenu);
+router.get('/', verifyToken, authorizeRoles('usuario', 'empresa', 'admin', 'delivery'), getDailyMenu);
 
 // 🛠️ Admin: obtener todos los menús (sin filtro)
-router.get('/daily/all', verifyToken, authorizeRoles('admin','delivery'), getAllDailyMenu);
+router.get('/all', verifyToken, authorizeRoles('admin','delivery'), getAllDailyMenu);
 
 
 // ✅ Crear nuevo plato (con imagen)
@@ -39,7 +39,7 @@ router.post(
 
 // ✅ Editar plato (con imagen)
 router.put(
-  '/daily/:id',
+  '/:id',
   verifyToken,
   authorizeRoles('admin'),
   uploadPlato.single('image'),
@@ -47,25 +47,25 @@ router.put(
 );
 
 // 🗑️ Eliminar plato
-router.delete('/daily/:id', verifyToken, authorizeRoles('admin'), deleteDailyItem);
+router.delete('/:id', verifyToken, authorizeRoles('admin'), deleteDailyItem);
 
 // 📥 Crear plato desde JSON (sin imagen)
 router.post(
-  '/daily/json',
+  '/json',
   verifyToken,
   authorizeRoles('admin'),
   createDailyItemFromJson
 );
 
 // 📅 Guardar menú semanal para usuarios
-router.put('/daily/usuario', verifyToken, authorizeRoles('admin'), saveWeeklyUserMenu);
+router.put('/usuario', verifyToken, authorizeRoles('admin'), saveWeeklyUserMenu);
 
 // 🏢 Guardar menú semanal para empresa
-router.put('/daily/empresa', verifyToken, authorizeRoles('admin'), saveWeeklyCompanyMenu);
+router.put('/empresa', verifyToken, authorizeRoles('admin'), saveWeeklyCompanyMenu);
 
 // 📝 Actualizar menú especial existente
 router.put(
-  '/daily/empresa/especial/:id',
+  '/empresa/especial/:id',
   verifyToken,
   authorizeRoles('admin'),
   uploadPlato.single('image'), // acepta imagen
@@ -74,13 +74,13 @@ router.put(
 
 
 // 📆 Obtener menú del día actual (por rol)
-router.get('/daily/today', verifyToken, getTodayDailyMenu);
+router.get('/today', verifyToken, getTodayDailyMenu);
 
 
 
 // 📋 Empresa/Admin obtiene menú especial
 router.get(
-  '/daily/empresa/especial',
+  '/empresa/especial',
   verifyToken,
   authorizeRoles('empresa', 'admin'),
   getSpecialMenuEmpresa
@@ -89,7 +89,7 @@ router.get(
 // 🧩 Admin crea o actualiza menú especial de empresa
 // routes/menu.routes.js
 router.post(
-  '/daily/empresa/especial',
+  '/empresa/especial',
   verifyToken,
   authorizeRoles('admin'),
   uploadPlato.single('image'), // NUEVO middleware

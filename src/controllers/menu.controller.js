@@ -14,12 +14,19 @@ export const getSemanaActualController = async (req, res) => {
       LIMIT 1
     `);
 
+    // ⚠️ No hay semana activa
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No hay semana activa actual' });
+      return res.status(200).json({
+        habilitado: false,
+        mensaje: 'Semana no habilitada para pedidos',
+        semana_inicio: null,
+        semana_fin: null,
+        cierre: null,
+        yaCerro: false
+      });
     }
 
     const semana = result.rows[0];
-
     const ahora = new Date();
     const yaCerro = semana.cierre && new Date(semana.cierre) < ahora;
 
@@ -35,6 +42,7 @@ export const getSemanaActualController = async (req, res) => {
     res.status(500).json({ error: 'Error en el servidor' });
   }
 };
+
 
 
 

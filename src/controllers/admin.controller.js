@@ -77,10 +77,7 @@ export const deleteUserById = async (req, res) => {
   }
 
   try {
-    // Elimina perfil si existe (en cascada también lo haría, pero por si acaso)
-    await pool.query('DELETE FROM user_profiles WHERE user_id = $1', [id]);
-
-    // Elimina usuario
+    // 🔥 Solo se borra el usuario (lo demás se borra en cascada)
     const result = await pool.query(
       'DELETE FROM users WHERE id = $1 RETURNING *',
       [id]
@@ -100,7 +97,7 @@ export const deleteUserById = async (req, res) => {
 
     return res.status(500).json({
       message: 'Error interno del servidor',
-      detail: error.detail
+      detail: error.detail || error.message
     });
   }
 };

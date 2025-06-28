@@ -70,12 +70,22 @@ export const createUser = async (req, res) => {
 };
 
 
-
 export const deleteUserById = async (req, res) => {
   const { id } = req.params;
 
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ message: 'ID inválido' });
+  }
+
   try {
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+    // Eliminar perfil primero (si existe)
+    await pool.query('DELETE FROM user_profiles WHERE user_id = $1', [id]);
+
+    // Luego eliminar usuario
+    const result = await pool.query(
+      'DELETE FROM users WHERE id = $1 RETURNING *',
+      [id]
+    );
 
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -83,7 +93,14 @@ export const deleteUserById = async (req, res) => {
 
     return res.status(200).json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {
-    console.error('❌ Error al eliminar usuario:', error);
+    console.error('❌ Error al eliminar usuario:', {
+      error: error.message,
+      detail: error.detail,
+      hint: error.hint,
+      code: error.code,
+    });
+
     return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+

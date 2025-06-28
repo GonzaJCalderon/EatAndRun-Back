@@ -2,6 +2,8 @@ import {
   getAllUsers as getAllUsersQuery,
   updateUserRole as updateUserRoleQuery
 } from '../models/user.model.js';
+import { pool } from '../db/index.js';
+
 
 export const getAllUsers = async (req, res) => {
   try {

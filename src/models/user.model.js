@@ -28,14 +28,14 @@ export const findUserByEmail = async (email) => {
   return result.rows[0];
 };
 
-// ✅ Obtener todos los usuarios (sin contraseña)
-export const getAllUsers = async () => {
+export const getAllUsersQuery = async () => {
   const result = await pool.query(`
     SELECT 
       u.id, 
       u.name, 
       u.email, 
       u.role_id,
+      up.apellido, -- 👈 AÑADILO
       up.telefono,
       up.direccion_principal,
       up.direccion_secundaria
@@ -44,17 +44,18 @@ export const getAllUsers = async () => {
     ORDER BY u.id ASC
   `);
 
- return result.rows.map(user => ({
-  id: user.id,
-  nombre: user.name,
-  email: user.email,
-  rol: roleMap[user.role_id] || "usuario",
-  telefono: user.telefono,
-  direccion_principal: user.direccion_principal,
-  direccion_secundaria: user.direccion_secundaria
-}));
-
+  return result.rows.map(user => ({
+    id: user.id,
+    nombre: user.name,
+    apellido: user.apellido || "—", // 👈 NUEVO
+    email: user.email,
+    rol: roleMap[user.role_id] || "usuario",
+    telefono: user.telefono,
+    direccion_principal: user.direccion_principal,
+    direccion_secundaria: user.direccion_secundaria
+  }));
 };
+
 
 
 // ✅ Actualizar rol de usuario

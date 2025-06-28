@@ -7,7 +7,7 @@ export const getAllUsers = async (req, res) => {
   try {
     const { role } = req.query;
 
-    const allUsers = await getAllUsersQuery(); // ✅ Usa la función bien hecha
+    const allUsers = await getAllUsersQuery(); // ✅ nombre corregido
     const filtered = role
       ? allUsers.filter(u => u.rol === role)
       : allUsers;
@@ -68,6 +68,7 @@ export const createUser = async (req, res) => {
     res.status(500).json({ error: "Error al crear usuario" });
   }
 };
+
 export const deleteUserById = async (req, res) => {
   const id = Number(req.params.id);
 
@@ -76,14 +77,14 @@ export const deleteUserById = async (req, res) => {
   }
 
   try {
-    // Verifica si tiene pedidos
-    const pedidos = await pool.query('SELECT 1 FROM orders WHERE user_id = $1 LIMIT 1', [id]);
-    if (pedidos.rowCount > 0) {
-      return res.status(409).json({ message: '❌ No se puede eliminar: tiene pedidos asociados' });
-    }
-
+    // Elimina perfil si existe (en cascada también lo haría, pero por si acaso)
     await pool.query('DELETE FROM user_profiles WHERE user_id = $1', [id]);
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+
+    // Elimina usuario
+    const result = await pool.query(
+      'DELETE FROM users WHERE id = $1 RETURNING *',
+      [id]
+    );
 
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -94,14 +95,16 @@ export const deleteUserById = async (req, res) => {
     console.error('❌ Error al eliminar usuario:', {
       message: error.message,
       detail: error.detail,
-      hint: error.hint,
-      code: error.code,
       stack: error.stack
     });
 
-    return res.status(500).json({ message: 'Error interno del servidor' });
+    return res.status(500).json({
+      message: 'Error interno del servidor',
+      detail: error.detail
+    });
   }
 };
+
 
 
 

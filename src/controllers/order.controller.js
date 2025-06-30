@@ -303,24 +303,89 @@ export const getOrderByIdController = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(`
-      SELECT o.*, u.name AS usuario_nombre, u.email, up.telefono, up.direccion_principal
+    // 1️⃣ Obtener el pedido principal
+    const pedidoRes = await pool.query(`
+      SELECT 
+        o.*, 
+        u.name AS usuario_nombre, 
+        u.email AS usuario_email,
+        up.apellido AS usuario_apellido,
+        up.telefono AS usuario_telefono, 
+        up.direccion_principal, 
+        up.direccion_secundaria
       FROM orders o
       JOIN users u ON o.user_id = u.id
       LEFT JOIN user_profiles up ON u.id = up.user_id
       WHERE o.id = $1
     `, [id]);
 
-    if (result.rows.length === 0) {
+    if (pedidoRes.rows.length === 0) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    const row = pedidoRes.rows[0];
+
+    // 2️⃣ Obtener los items asociados
+    const itemsRes = await pool.query(`
+      SELECT 
+        oi.item_type, 
+        oi.item_id, 
+        oi.item_name, 
+        oi.quantity, 
+        oi.dia,
+        COALESCE(
+          CASE 
+            WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
+            WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
+            WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
+            WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+            ELSE NULL
+          END,
+          oi.item_name,
+          CONCAT('ID:', oi.item_id),
+          'Desconocido'
+        ) AS resolved_name
+      FROM order_items oi
+      LEFT JOIN menu_extras me ON me.id = CAST(oi.item_id AS INTEGER) AND oi.item_type='extra'
+      LEFT JOIN menu_daily md ON md.id = CAST(oi.item_id AS INTEGER) AND oi.item_type='daily'
+      LEFT JOIN menu_fixed mf ON mf.id = CAST(oi.item_id AS INTEGER) AND oi.item_type='fijo'
+      WHERE oi.order_id = $1
+    `, [id]);
+
+    // 3️⃣ Estructurar el pedido con categorías
+    const items = itemsRes.rows;
+    const grouped = agruparItemsPorTipo(items);
+
+    // 4️⃣ Responder con el objeto completo
+  res.json({
+  id: row.id,
+  user_id: row.user_id,
+  fecha_entrega: row.fecha_entrega,
+  estado: row.status, // solo este
+  total: row.total,
+  observaciones: row.observaciones,
+  comprobante_url: row.comprobante_url,
+  tipo_menu: row.tipo_menu,
+  usuario: {
+    nombre: row.usuario_nombre,
+    apellido: row.usuario_apellido || '',
+    email: row.usuario_email,
+    telefono: row.usuario_telefono || '',
+    direccion: row.direccion_principal || '',
+    direccionSecundaria: row.direccion_secundaria || ''
+  },
+  pedido: grouped,
+  historial // si lo incluís
+});
+
+
   } catch (err) {
     console.error('❌ Error al obtener pedido:', err);
-    res.status(500).json({ error: 'Error al obtener pedido' });
+    res.status(500).json({ error: 'Error al obtener pedido', details: err.message });
   }
 };
+
+
 
 
 export const updatePedidoFields = async (req, res) => {
@@ -384,6 +449,7 @@ export const updateOrderItemsController = async (req, res) => {
     client.release();
   }
 };
+
 
 
 

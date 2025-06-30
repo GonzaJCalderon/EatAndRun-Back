@@ -6,7 +6,7 @@ import {
   updateOrderStatus,
   getOrderStatusHistory,
   saveOrderComprobante,
-   getPedidoConItemsById 
+getOrderById 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
@@ -305,7 +305,7 @@ export const createOrderWithUploadController = async (req, res) => {
 
 
 
-export const getOrderByIdController = async (req, res) => {
+export const getOrderById = async (req, res) => {
   const { id } = req.params;
 
   try {

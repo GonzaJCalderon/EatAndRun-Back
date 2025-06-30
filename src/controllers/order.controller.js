@@ -6,7 +6,7 @@ import {
   updateOrderStatus,
   getOrderStatusHistory,
   saveOrderComprobante,
-getOrderById 
+ getPedidoConItemsById 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';

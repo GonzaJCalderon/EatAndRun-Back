@@ -523,7 +523,9 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
 };
 
 
- function agruparItemsPorTipo(items) {
+
+// agrupadorItemsPorTipo.js
+function agruparItemsPorTipo(items) {
   const agrupados = {
     diarios: {},
     extras: {},
@@ -553,7 +555,10 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
 }
 
 
-
+export const getPedidoConItemsById = async (id) => {
+  const pedidos = await getPedidosConItems('WHERE o.id = $1', [id]);
+  return pedidos[0] || null;
+};
 
 
 

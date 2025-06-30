@@ -83,8 +83,6 @@ export const createOrder = async (userId, items, total, {
 };
 
 
-import { pool } from '../db/index.js';
-
 // 👇 esto puede ir al inicio del archivo si no está ya definido
 function agruparItemsPorTipo(items) {
   const agrupados = {

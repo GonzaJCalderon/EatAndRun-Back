@@ -83,120 +83,13 @@ export const createOrder = async (userId, items, total, {
 };
 
 
-// 👇 esto puede ir al inicio del archivo si no está ya definido
-function agruparItemsPorTipo(items) {
-  const agrupados = {
-    diarios: {},
-    extras: {},
-    tartas: {}
-  };
-
-  for (const item of items) {
-    const nombre = item.resolved_name || item.item_name || 'Desconocido';
-    const tipo = item.item_type;
-    const dia = item.dia || 'sin_dia';
-
-    const cantidad = Number(item.quantity);
-    if (isNaN(cantidad)) continue;
-
-    if (['daily', 'fijo'].includes(tipo)) {
-      if (!agrupados.diarios[dia]) agrupados.diarios[dia] = {};
-      agrupados.diarios[dia][nombre] = (agrupados.diarios[dia][nombre] || 0) + cantidad;
-    } else if (tipo === 'extra') {
-      if (!agrupados.extras[dia]) agrupados.extras[dia] = {};
-      agrupados.extras[dia][nombre] = (agrupados.extras[dia][nombre] || 0) + cantidad;
-    } else if (tipo === 'tarta') {
-      agrupados.tartas[nombre] = (agrupados.tartas[nombre] || 0) + cantidad;
-    }
-  }
-
-  return agrupados;
-}
-
-// ✅ REEMPLAZÁ esta función completa
 export const getOrdersByUser = async (userId) => {
-  const pedidosRes = await pool.query(`
-    SELECT 
-      o.*,
-      u.name AS usuario_nombre,
-      u.last_name AS usuario_apellido,
-      u.email AS usuario_email,
-      up.telefono AS usuario_telefono,
-      up.direccion_principal,
-      up.direccion_secundaria
-    FROM orders o
-    JOIN users u ON o.user_id = u.id
-    LEFT JOIN user_profiles up ON u.id = up.user_id
-    WHERE o.user_id = $1
-    ORDER BY o.created_at DESC
-  `, [userId]);
-
-  const pedidos = pedidosRes.rows;
-  if (pedidos.length === 0) return [];
-
-  const pedidoIds = pedidos.map(p => p.id);
-  const itemsRes = await pool.query(`
-    SELECT 
-      oi.order_id,
-      oi.item_type, 
-      oi.item_id, 
-      oi.item_name,
-      oi.quantity, 
-      oi.dia,
-      COALESCE(
-        CASE 
-          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
-          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
-          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
-          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-          ELSE NULL
-        END,
-        oi.item_name,
-        CONCAT('ID:', oi.item_id),
-        'Desconocido'
-      ) AS resolved_name
-    FROM order_items oi
-    LEFT JOIN menu_extras me ON me.id = 
-      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_daily md ON md.id = 
-      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_fixed mf ON mf.id = 
-      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    WHERE oi.order_id = ANY($1::int[])
-  `, [pedidoIds]);
-
-  const itemsPorPedido = {};
-  for (const item of itemsRes.rows) {
-    const id = item.order_id;
-    if (!itemsPorPedido[id]) itemsPorPedido[id] = [];
-    itemsPorPedido[id].push(item);
-  }
-
-  return pedidos.map(pedido => {
-    const items = itemsPorPedido[pedido.id] || [];
-    return {
-      id: pedido.id,
-      fecha_entrega: pedido.fecha_entrega,
-      estado: pedido.status,
-      observaciones: pedido.observaciones,
-      comprobante_url: pedido.comprobante_url,
-      comprobante_nombre: pedido.comprobante_nombre,
-      metodo_pago: pedido.metodo_pago,
-      tipo_menu: pedido.tipo_menu,
-      delivery_name: pedido.delivery_name,
-      delivery_phone: pedido.delivery_phone,
-      usuario: {
-        nombre: `${pedido.usuario_nombre} ${pedido.usuario_apellido || ''}`.trim(),
-        email: pedido.usuario_email,
-        telefono: pedido.usuario_telefono,
-        direccion: pedido.direccion_principal,
-        direccionSecundaria: pedido.direccion_secundaria || ''
-      },
-      pedido: agruparItemsPorTipo(items)
-    };
-  });
+  const result = await pool.query(
+    'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC',
+    [userId]
+  );
+  return result.rows;
 };
-
 
 export const getAllOrders = async () => {
   const result = await pool.query(`
@@ -661,81 +554,6 @@ function agruparItemsPorTipo(items) {
   return agrupados;
 }
 
-export const getPedidoConItemsById = async (id) => {
-  const pedidosRes = await pool.query(`
-    SELECT 
-      o.*,
-      u.name AS usuario_nombre,
-      u.email AS usuario_email,
-      u.role AS usuario_rol,
-      d.name AS repartidor_nombre,
-      up.telefono AS usuario_telefono,
-      up.direccion_principal,
-      up.direccion_secundaria,
-      up.apellido AS usuario_apellido
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN users d ON o.assigned_to = d.id
-    LEFT JOIN user_profiles up ON up.user_id = u.id
-    WHERE o.id = $1
-  `, [id]);
-
-  if (pedidosRes.rows.length === 0) return null;
-  const pedido = pedidosRes.rows[0];
-
-  const itemsRes = await pool.query(`
-    SELECT 
-      oi.order_id,
-      oi.item_type, 
-      oi.item_id, 
-      oi.item_name,
-      oi.quantity, 
-      oi.dia,
-      COALESCE(
-        CASE 
-          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
-          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
-          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
-          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-          ELSE NULL
-        END,
-        oi.item_name,
-        CONCAT('ID:', oi.item_id),
-        'Desconocido'
-      ) AS resolved_name
-    FROM order_items oi
-    LEFT JOIN menu_extras me ON me.id = 
-      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_daily md ON md.id = 
-      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_fixed mf ON mf.id = 
-      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    WHERE oi.order_id = $1
-  `, [id]);
-
-  const items = itemsRes.rows;
-
-  return {
-    ...pedido,
-    usuario: {
-      nombre: pedido.usuario_nombre,
-      apellido: pedido.usuario_apellido || '',
-      email: pedido.usuario_email,
-      telefono: pedido.usuario_telefono || '',
-      direccion: pedido.direccion_principal || '',
-      direccionSecundaria: pedido.direccion_secundaria || '',
-      rol: pedido.usuario_rol
-    },
-    repartidor: pedido.repartidor_nombre || null,
-    pedido: agruparItemsPorTipo(items),
-    estado: pedido.status,
-    fecha: pedido.fecha_entrega,
-    observaciones: pedido.observaciones,
-    comprobanteUrl: pedido.comprobante_url,
-    comprobanteNombre: pedido.comprobante_nombre,
-    tipo_menu: pedido.tipo_menu || 'usuario'
-  };
-};
 
 
 

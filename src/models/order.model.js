@@ -1,6 +1,4 @@
 import { pool } from '../db/index.js';
-import { agruparItemsPorTipo } from '../models/order.js'; // o desde donde la tengas definida
-
 
 export const createOrder = async (userId, items, total, {
   fechaEntrega,

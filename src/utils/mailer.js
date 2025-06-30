@@ -1,25 +1,37 @@
 import nodemailer from 'nodemailer';
 
-export const sendResetPasswordEmail = async (to, name, link) => {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_FROM,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.hostinger.com',
+  port: process.env.EMAIL_PORT || 465,
+  secure: process.env.EMAIL_SECURE === 'true', // true para 465
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
-  const mailOptions = {
-    from: `Eat&Run 🍽️ <${process.env.EMAIL_FROM}>`,
+export const sendResetPasswordEmail = async (to, nombre, link) => {
+  await transporter.sendMail({
+    from: `"Eat & Run" <${process.env.EMAIL_USER}>`,
     to,
-    subject: '🔒 Recuperar tu contraseña',
+    subject: '🔒 Recuperación de contraseña',
     html: `
-      <p>Hola ${name},</p>
-      <p>Hacé clic en el siguiente enlace para restablecer tu contraseña:</p>
-      <a href="${link}" target="_blank">Restablecer contraseña</a>
-      <p>Este enlace expirará en 1 hora.</p>
+      <p>Hola ${nombre},</p>
+      <p>Hiciste una solicitud para recuperar tu contraseña. Haz clic en el siguiente enlace:</p>
+      <a href="${link}">${link}</a>
+      <p>Este enlace es válido por 1 hora. Si no fuiste vos, ignorá este correo.</p>
     `
-  };
+  });
+};
 
-  await transporter.sendMail(mailOptions);
+export const sendWelcomeEmail = async (to, nombre) => {
+  await transporter.sendMail({
+    from: `"Eat & Run" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: '👋 Bienvenido a Eat & Run',
+    html: `
+      <p>Hola ${nombre},</p>
+      <p>Gracias por registrarte en Eat & Run. ¡Esperamos que disfrutes nuestros menús saludables! 🥗</p>
+    `
+  });
 };

@@ -44,18 +44,19 @@ await createUserProfile({
   apellido
 });
 
+if (role === 'empresa' && empresa) {
+  await createEmpresa({
+    user_id: user.id,
+    razon_social: empresa.razonSocial,
+    cuit: empresa.cuit
+  });
+}
 
+// ⬇️ Aquí agregás el envío de correo
+await sendWelcomeEmail(email, name);
 
+res.status(201).json({ message: 'Usuario creado', user });
 
-    if (role === 'empresa' && empresa) {
-      await createEmpresa({
-        user_id: user.id,
-        razon_social: empresa.razonSocial,
-        cuit: empresa.cuit
-      });
-    }
-
-    res.status(201).json({ message: 'Usuario creado', user });
   } catch (err) {
     console.error('❌ Error en registerController:', err);
     res.status(400).json({ error: err.message });
@@ -85,7 +86,7 @@ export const forgotPassword = async (req, res) => {
 
   const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-  const link = `${process.env.FRONTEND_URL}/reset-password/${token}`;
+  const link = `https://eatandrun.shop//reset-password/${token}`;
   await sendResetPasswordEmail(email, user.name, link);
 
   res.json({ message: 'Correo enviado' });

@@ -6,7 +6,8 @@ import {
   updateOrderStatus,
   getOrderStatusHistory,
   saveOrderComprobante,
- getPedidoConItemsById 
+ getPedidoConItemsById, 
+ getPedidosConItems 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
@@ -100,10 +101,10 @@ const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
 // Obtener pedidos del usuario actual
 export const getUserOrdersController = async (req, res) => {
   try {
-    const orders = await getOrdersByUser(req.user.id);
-    res.json(orders);
+    const pedidos = await getPedidosConItems('WHERE o.user_id = $1', [req.user.id]);
+    res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener pedidos del usuario' });
+    res.status(500).json({ error: 'Error al obtener pedidos del usuario', details: err.message });
   }
 };
 

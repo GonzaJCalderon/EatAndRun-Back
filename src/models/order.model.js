@@ -554,13 +554,21 @@ function agruparItemsPorTipo(items) {
   return agrupados;
 }
 
-
 export const getPedidoConItemsById = async (id) => {
   const pedidos = await getPedidosConItems('WHERE o.id = $1', [id]);
-  return pedidos[0] || null;
+  const pedido = pedidos[0] || null;
+
+  if (!pedido) return null;
+
+  // Extra: traer historial de estados
+  const result = await pool.query(
+    'SELECT status, changed_at FROM order_status_history WHERE order_id = $1 ORDER BY changed_at ASC',
+    [id]
+  );
+  pedido.historialEstados = result.rows;
+
+  return pedido;
 };
-
-
 
 
 

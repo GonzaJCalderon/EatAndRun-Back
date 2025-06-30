@@ -305,7 +305,7 @@ export const createOrderWithUploadController = async (req, res) => {
 
 
 
-export const getOrderById = async (req, res) => {
+export const getOrderByIdController = async (req, res) => {
   const { id } = req.params;
 
   try {

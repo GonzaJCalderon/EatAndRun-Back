@@ -69,8 +69,9 @@ export const createOrderController = async (req, res) => {
   }
 
   try {
-const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
-    const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
+const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+
     const semana = result.rows[0];
     if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
     if (semana.cierre && new Date(semana.cierre) < new Date()) {

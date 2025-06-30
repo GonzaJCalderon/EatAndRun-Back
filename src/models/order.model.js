@@ -554,6 +554,81 @@ function agruparItemsPorTipo(items) {
   return agrupados;
 }
 
+export const getPedidoConItemsById = async (id) => {
+  const pedidosRes = await pool.query(`
+    SELECT 
+      o.*,
+      u.name AS usuario_nombre,
+      u.email AS usuario_email,
+      u.role AS usuario_rol,
+      d.name AS repartidor_nombre,
+      up.telefono AS usuario_telefono,
+      up.direccion_principal,
+      up.direccion_secundaria,
+      up.apellido AS usuario_apellido
+    FROM orders o
+    LEFT JOIN users u ON o.user_id = u.id
+    LEFT JOIN users d ON o.assigned_to = d.id
+    LEFT JOIN user_profiles up ON up.user_id = u.id
+    WHERE o.id = $1
+  `, [id]);
+
+  if (pedidosRes.rows.length === 0) return null;
+  const pedido = pedidosRes.rows[0];
+
+  const itemsRes = await pool.query(`
+    SELECT 
+      oi.order_id,
+      oi.item_type, 
+      oi.item_id, 
+      oi.item_name,
+      oi.quantity, 
+      oi.dia,
+      COALESCE(
+        CASE 
+          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
+          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
+          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
+          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+          ELSE NULL
+        END,
+        oi.item_name,
+        CONCAT('ID:', oi.item_id),
+        'Desconocido'
+      ) AS resolved_name
+    FROM order_items oi
+    LEFT JOIN menu_extras me ON me.id = 
+      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    LEFT JOIN menu_daily md ON md.id = 
+      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    LEFT JOIN menu_fixed mf ON mf.id = 
+      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+    WHERE oi.order_id = $1
+  `, [id]);
+
+  const items = itemsRes.rows;
+
+  return {
+    ...pedido,
+    usuario: {
+      nombre: pedido.usuario_nombre,
+      apellido: pedido.usuario_apellido || '',
+      email: pedido.usuario_email,
+      telefono: pedido.usuario_telefono || '',
+      direccion: pedido.direccion_principal || '',
+      direccionSecundaria: pedido.direccion_secundaria || '',
+      rol: pedido.usuario_rol
+    },
+    repartidor: pedido.repartidor_nombre || null,
+    pedido: agruparItemsPorTipo(items),
+    estado: pedido.status,
+    fecha: pedido.fecha_entrega,
+    observaciones: pedido.observaciones,
+    comprobanteUrl: pedido.comprobante_url,
+    comprobanteNombre: pedido.comprobante_nombre,
+    tipo_menu: pedido.tipo_menu || 'usuario'
+  };
+};
 
 
 

@@ -15,13 +15,15 @@ const router = express.Router();
 
 router.get('/', verifyToken, getFixedMenu);
 
+// ✅ corregido
 router.post(
-  '/fixed',
+  '/',
   verifyToken,
   authorizeRoles('admin', 'moderador'),
-  uploadPlato.single('image'), // ✅ corregido
+  uploadPlato.single('image'),
   createFixedItem
 );
+
 
 router.put(
   '/:id',

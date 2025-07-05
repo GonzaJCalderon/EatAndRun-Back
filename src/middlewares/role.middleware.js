@@ -6,15 +6,15 @@ export const authorizeRoles = (...allowedRoles) => {
       return res.status(403).json({ error: 'Rol no encontrado en el token' });
     }
 
-   const rolesMap = {
-  1: "usuario",
-  2: "empresa",
-  3: "delivery",
-  4: "admin",
-  5: "moderador",
-};
+    const rolesMap = {
+      1: "usuario",
+      2: "empresa",
+      3: "delivery",
+      4: "admin",
+      5: "moderador",
+      6: "empleado" // ✅ NUEVO
+    };
 
-    // ✅ Soporte para role como número o string
     const roleName = typeof rawRole === 'number' ? rolesMap[rawRole] : rawRole;
 
     if (!allowedRoles.includes(roleName)) {

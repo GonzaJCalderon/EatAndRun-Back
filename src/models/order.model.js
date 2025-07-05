@@ -105,8 +105,8 @@ export const getAllOrders = async () => {
       o.delivery_name,
       o.delivery_phone,
 
-      u.name AS nombre,
-      u.last_name AS apellido,
+    u.name AS nombre,
+  up.apellido,
       u.email,
       up.telefono,
       up.direccion_principal,
@@ -569,6 +569,16 @@ export const getPedidoConItemsById = async (id) => {
 
   return pedido;
 };
+
+export const getPedidosPorEmpresa = async (empresaId) => {
+  const query = `
+    JOIN empresa_users eu ON eu.user_id = o.user_id
+    WHERE eu.empresa_id = $1
+  `;
+
+  return await getPedidosConItems(query, [empresaId]);
+};
+
 
 
 

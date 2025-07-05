@@ -19,4 +19,14 @@ const storage = new CloudinaryStorage({
   }
 });
 
-export { cloudinary, storage };
+const storageTartas = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'eat-and-run/tartas',
+    allowed_formats: ['jpg', 'jpeg', 'png'],
+    transformation: [{ width: 500, height: 500, crop: 'limit' }]
+  }
+});
+
+
+export { cloudinary, storage, storageTartas };

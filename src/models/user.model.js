@@ -6,7 +6,9 @@ const roleMap = {
   3: "delivery",
   4: "admin",
   5: "moderador",
+  6: "empleado", // 👈 AGREGADO
 };
+
 
 export const createUser = async ({ name, apellido, email, password, role_id }) => {
   const result = await pool.query(
@@ -16,7 +18,7 @@ export const createUser = async ({ name, apellido, email, password, role_id }) =
     [name, apellido, email, password, role_id]
   );
 
-  return result.rows[0]; // 👈 Este user.id lo usás para crear el perfil después
+  return result.rows[0];
 };
 
 
@@ -65,5 +67,27 @@ export const updateUserRole = async (id, role_id) => {
     [role_id, id]
   );
   return result.rows[0]; // Puede ser undefined si no existe
+};
+
+
+export const createEmpresaUser = async ({ empresa_id, user_id, rol }) => {
+  const result = await pool.query(
+    `INSERT INTO empresa_users (empresa_id, user_id, rol)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [empresa_id, user_id, rol]
+  );
+  return result.rows[0];
+};
+
+export const updateUserBasicInfo = async ({ user_id, name, apellido }) => {
+  const result = await pool.query(
+    `UPDATE users 
+     SET name = $1, last_name = $2 
+     WHERE id = $3 
+     RETURNING id, name, last_name, email, role_id`,
+    [name, apellido, user_id]
+  );
+  return result.rows[0];
 };
 

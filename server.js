@@ -15,6 +15,9 @@ import kitchenOrderRoutes from './src/routes/kitchenOrder.routes.js';
 import userProfileRoutes from './src/routes/userProfile.routes.js';
 import imageRoutes from './src/routes/image.routes.js';
 import semanaMenuRoutes from './src/routes/semanaMenu.routes.js';
+import tartasRoutes from './src/routes/tartas.routes.js';
+import empresaRoutes from './src/routes/empresa.routes.js';
+import invitacionRoutes from './src/routes/invitacion.routes.js';
 
 const app = express();
 
@@ -59,6 +62,9 @@ app.use('/api/daily', dailyMenuRoutes);
 app.use('/api/semana', semanaMenuRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/perfil', userProfileRoutes);
+app.use('/api/tartas', tartasRoutes);
+app.use('/api/empresa', empresaRoutes);
+app.use('/api/invitacion', invitacionRoutes);
 
 // ✅ Ruta raíz
 app.get('/', (req, res) => {

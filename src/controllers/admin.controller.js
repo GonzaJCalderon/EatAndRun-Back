@@ -18,7 +18,24 @@ export const getAllUsers = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Error al obtener usuarios', details: err.message });
   }
+
 };
+export const getTodasLasEmpresas = async (req, res) => {
+  try {
+    const result = await pool.query(`
+SELECT e.id, e.razon_social, e.codigo_invitacion, u.email
+
+      FROM empresas e
+      JOIN users u ON u.id = e.user_id
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error al obtener empresas:", err);
+    res.status(500).json({ error: 'Error interno al obtener empresas' });
+  }
+};
+
 
 
 

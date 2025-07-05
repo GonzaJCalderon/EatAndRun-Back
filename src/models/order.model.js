@@ -432,16 +432,18 @@ export const getOrdersByDeliveryId = async (deliveryId) => {
 export const getPedidosConItems = async (filtros = '', valores = []) => {
   // 1️⃣ Obtener todos los pedidos
   const pedidosRes = await pool.query(`
-    SELECT 
-      o.*,
-      u.name AS usuario_nombre,
-      u.email AS usuario_email,
-      u.role AS usuario_rol,
-      d.name AS repartidor_nombre,
-      up.telefono AS usuario_telefono,
-      up.direccion_principal AS direccion_principal,
-      up.direccion_secundaria AS direccion_secundaria,
-      up.apellido AS usuario_apellido -- ✅ Agregado apellido
+ SELECT 
+  o.*,
+  o.nota_admin, -- ✅ agregamos nota libre del admin
+  u.name AS usuario_nombre,
+  u.email AS usuario_email,
+  u.role AS usuario_rol,
+  d.name AS repartidor_nombre,
+  up.telefono AS usuario_telefono,
+  up.direccion_principal AS direccion_principal,
+  up.direccion_secundaria AS direccion_secundaria,
+  up.apellido AS usuario_apellido
+
     FROM orders o
     LEFT JOIN users u ON o.user_id = u.id
     LEFT JOIN users d ON o.assigned_to = d.id
@@ -494,30 +496,32 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
   }
 
   // 4️⃣ Armar la estructura final
-  const pedidosConItems = pedidos.map(pedido => {
-    const items = itemsPorPedido[pedido.id] || [];
+ const pedidosConItems = pedidos.map(pedido => {
+  const items = itemsPorPedido[pedido.id] || [];
 
-    return {
-      ...pedido,
-      usuario: {
-        nombre: pedido.usuario_nombre,
-        apellido: pedido.usuario_apellido || '', // ✅ agregado apellido
-        email: pedido.usuario_email,
-        telefono: pedido.usuario_telefono || '',
-        direccion: pedido.direccion_principal || '',
-        direccionSecundaria: pedido.direccion_secundaria || '',
-        rol: pedido.usuario_rol
-      },
-      repartidor: pedido.repartidor_nombre || null,
-      pedido: agruparItemsPorTipo(items),
-      estado: pedido.status,
-      fecha: pedido.fecha_entrega,
-      observaciones: pedido.observaciones,
-      comprobanteUrl: pedido.comprobante_url,
-      comprobanteNombre: pedido.comprobante_nombre,
-      tipo_menu: pedido.tipo_menu || 'usuario'
-    };
-  });
+  return {
+    ...pedido,
+    usuario: {
+      nombre: pedido.usuario_nombre,
+      apellido: pedido.usuario_apellido || '',
+      email: pedido.usuario_email,
+      telefono: pedido.usuario_telefono || '',
+      direccion: pedido.direccion_principal || '',
+      direccionSecundaria: pedido.direccion_secundaria || '',
+      rol: pedido.usuario_rol
+    },
+    repartidor: pedido.repartidor_nombre || null,
+    pedido: agruparItemsPorTipo(items),
+    estado: pedido.status,
+    fecha: pedido.fecha_entrega,
+    observaciones: pedido.observaciones,
+    nota_admin: pedido.nota_admin || null, // ✅ nota libre del admin
+    comprobanteUrl: pedido.comprobante_url,
+    comprobanteNombre: pedido.comprobante_nombre,
+    tipo_menu: pedido.tipo_menu || 'usuario'
+  };
+});
+
 
   return pedidosConItems;
 };

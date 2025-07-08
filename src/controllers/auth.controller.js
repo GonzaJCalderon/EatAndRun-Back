@@ -13,6 +13,8 @@ import {
 } from '../models/empresaUsers.model.js';
 
 // ✅ REGISTRO DE USUARIO
+import { completarPerfilFaltante } from '../services/auth.service.js';
+
 export const registerController = async (req, res) => {
   try {
     const {
@@ -28,64 +30,59 @@ export const registerController = async (req, res) => {
       codigoInvitacion
     } = req.body;
 
-   const roleMap = {
-  1: 1, // usuario
-  2: 3, // empresa
-  3: 5, // delivery
-  4: 4, // admin
-  5: 6  // empleado 🚨
-};
+    const roleMap = {
+      1: 1, // usuario
+      2: 3, // empresa
+      3: 5, // delivery
+      4: 4, // admin
+      5: 6  // empleado 🚨
+    };
 
-   let role_id = roleMap[role] || 1;
+    let role_id = roleMap[role] || 1;
 
-// ⚠️ Si hay código de invitación, forzamos a 'empleado'
-if (codigoInvitacion) {
-  const empleadoRoleRes = await pool.query(`SELECT id FROM roles WHERE name = 'empleado'`);
-  if (!empleadoRoleRes.rows.length) {
-    return res.status(500).json({ error: 'Rol empleado no existe en la base de datos' });
-  }
-  role_id = empleadoRoleRes.rows[0].id;
-}
-
-
-    const user = await register({ name, apellido, email, password, role_id });
-
-    await createUserProfile({
-      user_id: user.id,
-      telefono,
-      direccion_principal,
-      direccion_alternativa
-    });
-
-    // 👉 Si el rol es empresa, creamos la empresa
-    if (role === 'empresa' && empresa) {
-      await createEmpresa({
-        user_id: user.id,
-        razon_social: empresa.razonSocial,
-        cuit: empresa.cuit
-      });
+    // Si viene código de invitación, forzamos el rol
+    if (codigoInvitacion) {
+      const empleadoRoleRes = await pool.query(`SELECT id FROM roles WHERE name = 'empleado'`);
+      if (!empleadoRoleRes.rows.length) {
+        return res.status(500).json({ error: 'Rol empleado no existe en la base de datos' });
+      }
+      role_id = empleadoRoleRes.rows[0].id;
     }
 
-    // 👉 Si viene un código de invitación, lo procesamos
-    if (codigoInvitacion) {
-      const empresa = await encontrarEmpresaPorCodigo(codigoInvitacion);
+    // 🔎 Verificar si ya existe
+    const existing = await findUserByEmail(email);
 
-      if (!empresa) {
-        return res.status(400).json({ error: 'Código de invitación inválido' });
+    let user;
+    if (existing) {
+      if (existing.tiene_perfil) {
+        return res.status(400).json({ error: 'El email ya está registrado' });
       }
 
-      if (empresa.codigo_expira && new Date(empresa.codigo_expira) < new Date()) {
-        return res.status(400).json({ error: 'El código de invitación ha expirado' });
-      }
+      // ⛏ Si no tiene perfil, completamos el perfil faltante
+      user = existing;
+      await completarPerfilFaltante({
+        user,
+        telefono,
+        direccion_principal,
+        direccion_alternativa,
+        role,
+        empresa,
+        codigoInvitacion
+      });
 
-      const yaAsociado = await isUserInEmpresa(empresa.id, user.id);
-      if (!yaAsociado) {
-        await asociarEmpleadoAEmpresa({
-          empresa_id: empresa.id,
-          user_id: user.id,
-          rol: 'empleado'
-        });
-      }
+    } else {
+      // 🙌 Registro normal
+      user = await register({ name, apellido, email, password, role_id });
+
+      await completarPerfilFaltante({
+        user,
+        telefono,
+        direccion_principal,
+        direccion_alternativa,
+        role,
+        empresa,
+        codigoInvitacion
+      });
     }
 
     await sendWelcomeEmail(email, name);

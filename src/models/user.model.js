@@ -23,12 +23,16 @@ export const createUser = async ({ name, apellido, email, password, role_id }) =
 
 
 export const findUserByEmail = async (email) => {
-  const result = await pool.query(
-    'SELECT * FROM users WHERE email = $1',
-    [email]
-  );
-  return result.rows[0];
+  const res = await pool.query(`
+    SELECT u.*, p.user_id IS NOT NULL AS tiene_perfil
+    FROM users u
+    LEFT JOIN user_profiles p ON u.id = p.user_id
+    WHERE LOWER(u.email) = LOWER($1)
+  `, [email]);
+
+  return res.rows[0]; // 👈 incluye si tiene o no perfil
 };
+
 
 export const getAllUsers = async () => {
   const result = await pool.query(`

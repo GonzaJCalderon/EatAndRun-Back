@@ -11,12 +11,13 @@ const roleMap = {
   5: 'moderador'
 };
 
+// auth.service.js
 export const register = async (data) => {
-  const { name, apellido, email, password, role_id } = data; // 👈 AGREGADO apellido
+  const { name, apellido, email, password, role_id } = data;
 
-
-  const existing = await findUserByEmail(email);
+  const existing = await findUserByEmail(email); // 🔍 ACÁ
   if (existing) throw new Error('El email ya está registrado');
+
 
   const hashedPassword = await bcrypt.hash(password, 10);
 const user = await createUser({ name, apellido, email, password: hashedPassword, role_id });

@@ -2,7 +2,10 @@ import {
   getAllUsers as getAllUsersQuery,
   updateUserRole as updateUserRoleQuery
 } from '../models/user.model.js';
+import { createEmpresa } from '../models/empresa.model.js';
 import { pool } from '../db/index.js';
+import { findUserByEmail, createUser } from '../models/user.model.js';
+
 
 
 export const getAllUsers = async (req, res) => {
@@ -20,11 +23,18 @@ export const getAllUsers = async (req, res) => {
   }
 
 };
+
 export const getTodasLasEmpresas = async (req, res) => {
   try {
     const result = await pool.query(`
-SELECT e.id, e.razon_social, e.codigo_invitacion, u.email
-
+      SELECT 
+        e.id,
+        e.razon_social AS nombre,
+        e.codigo_invitacion,
+        e.codigo_expira,
+        e.cuit,
+        u.name AS responsable_nombre,
+        u.email AS responsable_email
       FROM empresas e
       JOIN users u ON u.id = e.user_id
     `);
@@ -35,6 +45,7 @@ SELECT e.id, e.razon_social, e.codigo_invitacion, u.email
     res.status(500).json({ error: 'Error interno al obtener empresas' });
   }
 };
+
 
 
 
@@ -69,7 +80,7 @@ export const updateUserRole = async (req, res) => {
 };
 
 // POST /admin/users
-export const createUser = async (req, res) => {
+export const createUserAdmin = async (req, res) => {
   const { nombre, email, password, rol } = req.body;
 
   const roleMap = { usuario: 1, empresa: 2, delivery: 3, admin: 4 };
@@ -122,5 +133,47 @@ export const deleteUserById = async (req, res) => {
 };
 
 
+// controllers/admin.controller.js
+
+
+export const crearEmpresa = async (req, res) => {
+  try {
+    const { nombre, responsable_email, cuit } = req.body;
+
+    if (!nombre || !responsable_email) {
+      return res.status(400).json({ error: 'Campos incompletos: nombre y responsable_email requeridos' });
+    }
+
+    // Revisa si ya existe un usuario con este email
+    let user = await findUserByEmail(responsable_email);
+
+    if (!user) {
+      // Creamos el usuario responsable
+     user = await createUser({
+  name: nombre,
+  email: responsable_email,
+  password: 'temporal123',
+  role_id: 2 // 👈 2 = empresa
+});
+
+    }
+
+    // Crea la empresa asociada a este usuario
+    const empresaCreada = await createEmpresa({
+      user_id: user.id,
+      razon_social: nombre,
+      cuit: cuit || null
+    });
+
+    res.status(201).json({
+      message: '✅ Empresa creada correctamente',
+      empresa: empresaCreada
+    });
+
+  } catch (error) {
+    console.error('❌ Error al crear empresa:', error);
+    res.status(500).json({ error: 'Error interno al crear empresa' });
+  }
+};
 
 

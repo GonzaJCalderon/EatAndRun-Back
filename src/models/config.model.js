@@ -1,5 +1,5 @@
 // src/models/config.model.js
-import pool from '../db/db.js';
+import { pool } from '../db/index.js';
 
 export const getConfig = async (clave) => {
   const { rows } = await pool.query(

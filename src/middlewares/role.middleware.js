@@ -24,3 +24,5 @@ export const authorizeRoles = (...allowedRoles) => {
     next();
   };
 };
+
+export const requireAdmin = authorizeRoles('admin');

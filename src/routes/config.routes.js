@@ -1,7 +1,7 @@
 // src/routes/config.routes.js
 import express from 'express';
 import { getConfigController, setConfigController } from '../controllers/config.controller.js';
-import { requireAdmin } from '../middlewares/auth.js'; // tu middleware de rol
+import { requireAdmin } from '../middlewares/role.middleware.js'; // tu middleware de rol
 
 const router = express.Router();
 

@@ -14,62 +14,53 @@ export const createOrder = async (userId, items, total, {
   try {
     await client.query('BEGIN');
 
-    
-const semanaRes = await client.query(`
-  SELECT semana_inicio, semana_fin 
-  FROM menu_semana
-  WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
-  ORDER BY semana_inicio DESC
-  LIMIT 1
-`);
+    // 1️⃣ Buscar semana habilitada actual
+    const semanaRes = await client.query(`
+      SELECT semana_inicio, semana_fin, dias_habilitados
+      FROM menu_semana
+      WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
+      ORDER BY semana_inicio DESC
+      LIMIT 1
+    `);
 
-if (semanaRes.rows.length === 0) {
-  throw new Error('No hay semana habilitada actualmente');
-}
+    if (semanaRes.rows.length === 0) {
+      throw new Error('No hay semana habilitada actualmente');
+    }
 
-const { semana_inicio, semana_fin } = semanaRes.rows[0];
+    const { semana_inicio, semana_fin, dias_habilitados } = semanaRes.rows[0];
 
-// ✅ Validar que la fecha_entrega esté dentro del rango permitido
-const fecha = dayjs(fechaEntrega);
+    // 2️⃣ Validar fecha_entrega dentro de rango semanal
+    const fecha = dayjs(fechaEntrega);
+    if (!fecha.isBetween(semana_inicio, semana_fin, 'day', '[]')) {
+      throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
+    }
 
-if (!fecha.isBetween(semana_inicio, semana_fin, 'day', '[]')) {
-  throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
-}
+    // 3️⃣ Filtrar ítems inválidos
+    const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+    const itemsFiltrados = [];
 
-// ✅ Validar que cada item.dia sea un día válido
-const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+    for (const item of items) {
+      if (!item.dia) {
+        itemsFiltrados.push(item); // Tarta o ítem sin día
+        continue;
+      }
 
-for (const item of items) {
-  if (item.dia && !diasValidos.includes(item.dia.toLowerCase())) {
-    throw new Error(`Día inválido en item: "${item.dia}". Solo se permiten días válidos de lunes a viernes`);
-  }
-}
+      const diaLower = item.dia.toLowerCase();
 
-// 🛡️ Cargar los días habilitados de la semana
-const diasHabilitadosRes = await client.query(`
-  SELECT dias_habilitados
-  FROM menu_semana
-  WHERE semana_inicio = $1 AND semana_fin = $2
-`, [semana_inicio, semana_fin]);
+      if (!diasValidos.includes(diaLower)) {
+        console.warn(`❌ Día inválido: ${item.dia}. Ítem ignorado.`);
+        continue;
+      }
 
-const diasHabilitados = diasHabilitadosRes.rows[0]?.dias_habilitados || {};
+      if (!diasHabilitados?.[diaLower]) {
+        console.warn(`⚠️ Día deshabilitado esta semana: ${diaLower}. Ítem ignorado.`);
+        continue;
+      }
 
-for (const item of items) {
-  if (!item.dia) continue;
-  
-  const diaLower = item.dia.toLowerCase();
+      itemsFiltrados.push(item); // ✅ válido
+    }
 
-  if (!diasValidos.includes(diaLower)) {
-    throw new Error(`❌ Día inválido en item: "${item.dia}"`);
-  }
-
-  if (!diasHabilitados[diaLower]) {
-    throw new Error(`❌ El día "${diaLower}" no está habilitado esta semana`);
-  }
-}
-
-
-    // 1️⃣ Insertar orden base
+    // 4️⃣ Insertar orden base
     const orderInsert = await client.query(`
       INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -78,8 +69,8 @@ for (const item of items) {
 
     const orderId = orderInsert.rows[0].id;
 
-    // 2️⃣ Insertar cada item con nombre resuelto
-    for (const item of items) {
+    // 5️⃣ Insertar ítems
+    for (const item of itemsFiltrados) {
       const { item_type, item_id, quantity, dia, precio } = item;
 
       if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) {
@@ -90,20 +81,17 @@ for (const item of items) {
       let finalItemId = null;
       let finalItemName = null;
 
-      // 🥧 Casos especiales como "tarta" que usan string como nombre
       if (item_type === 'tarta' || item_type === 'skip') {
         finalItemName = String(item_id);
       }
 
-      // 📦 Si es un ID numérico (daily, fijo, extra), obtener nombre desde DB
       if (['daily', 'fijo', 'extra'].includes(item_type)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
 
         const tabla =
           item_type === 'daily' ? 'daily_menu' :
           item_type === 'fijo' ? 'fixed_menu' :
-          item_type === 'extra' ? 'menu_extras' :
-          null;
+          item_type === 'extra' ? 'menu_extras' : null;
 
         if (tabla && finalItemId !== null) {
           const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
@@ -111,7 +99,6 @@ for (const item of items) {
         }
       }
 
-      // 💾 Insertar el ítem final
       await client.query(`
         INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -128,7 +115,11 @@ for (const item of items) {
 
     await client.query('COMMIT');
 
-    return { id: orderId, message: 'Pedido creado correctamente' };
+    return {
+      id: orderId,
+      message: 'Pedido creado correctamente',
+      cantidadItems: itemsFiltrados.length
+    };
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -138,6 +129,7 @@ for (const item of items) {
     client.release();
   }
 };
+
 
 
 export const getOrdersByUser = async (userId) => {

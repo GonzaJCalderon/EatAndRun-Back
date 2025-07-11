@@ -1,4 +1,6 @@
 import { pool } from '../db/index.js';
+import dayjs from 'dayjs'; 
+
 
 export const createOrder = async (userId, items, total, {
   fechaEntrega,
@@ -11,6 +13,61 @@ export const createOrder = async (userId, items, total, {
 
   try {
     await client.query('BEGIN');
+
+    
+const semanaRes = await client.query(`
+  SELECT semana_inicio, semana_fin 
+  FROM menu_semana
+  WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
+  ORDER BY semana_inicio DESC
+  LIMIT 1
+`);
+
+if (semanaRes.rows.length === 0) {
+  throw new Error('No hay semana habilitada actualmente');
+}
+
+const { semana_inicio, semana_fin } = semanaRes.rows[0];
+
+// ✅ Validar que la fecha_entrega esté dentro del rango permitido
+const fecha = dayjs(fechaEntrega);
+
+if (!fecha.isBetween(semana_inicio, semana_fin, 'day', '[]')) {
+  throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
+}
+
+// ✅ Validar que cada item.dia sea un día válido
+const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+
+for (const item of items) {
+  if (item.dia && !diasValidos.includes(item.dia.toLowerCase())) {
+    throw new Error(`Día inválido en item: "${item.dia}". Solo se permiten días válidos de lunes a viernes`);
+  }
+}
+
+// 🛡️ Cargar los días habilitados de la semana
+const diasHabilitadosRes = await client.query(`
+  SELECT dias_habilitados
+  FROM menu_semana
+  WHERE semana_inicio = $1 AND semana_fin = $2
+`, [semana_inicio, semana_fin]);
+
+const diasHabilitados = diasHabilitadosRes.rows[0]?.dias_habilitados || {};
+
+for (const item of items) {
+  if (!item.dia) continue;
+  
+  const diaLower = item.dia.toLowerCase();
+
+  if (!diasValidos.includes(diaLower)) {
+    throw new Error(`❌ Día inválido en item: "${item.dia}"`);
+  }
+
+  if (!diasHabilitados[diaLower]) {
+    throw new Error(`❌ El día "${diaLower}" no está habilitado esta semana`);
+  }
+}
+
 
     // 1️⃣ Insertar orden base
     const orderInsert = await client.query(`

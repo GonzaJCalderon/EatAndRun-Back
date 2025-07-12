@@ -1,4 +1,4 @@
-import dayjs from 'dayjs';
+import dayjs from '../utils/tiempo.js';
 import 'dayjs/locale/es';
 dayjs.locale('es');
 
@@ -16,3 +16,6 @@ export const getDiaOperativoNombre = () => {
 export const esHoyOperativo = (fecha) => {
   return dayjs(fecha).isSame(getFechaOperativa(), 'day');
 };
+
+// al final de utils/fecha.js
+export default dayjs;

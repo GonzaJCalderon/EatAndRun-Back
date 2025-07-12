@@ -1,4 +1,6 @@
 import { pool } from '../db/index.js';
+import dayjs from '../utils/tiempo.js';
+
 
 export const createOrder = async (userId, items, total, {
   fechaEntrega,
@@ -12,7 +14,53 @@ export const createOrder = async (userId, items, total, {
   try {
     await client.query('BEGIN');
 
-    // 1️⃣ Insertar orden base
+    // 1️⃣ Buscar semana habilitada actual
+    const semanaRes = await client.query(`
+      SELECT semana_inicio, semana_fin, dias_habilitados
+      FROM menu_semana
+      WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
+      ORDER BY semana_inicio DESC
+      LIMIT 1
+    `);
+
+    if (semanaRes.rows.length === 0) {
+      throw new Error('No hay semana habilitada actualmente');
+    }
+
+    const { semana_inicio, semana_fin, dias_habilitados } = semanaRes.rows[0];
+
+    // 2️⃣ Validar fecha_entrega dentro de rango semanal
+    const fecha = dayjs(fechaEntrega);
+    if (!fecha.isBetween(semana_inicio, semana_fin, 'day', '[]')) {
+      throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
+    }
+
+    // 3️⃣ Filtrar ítems inválidos
+    const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+    const itemsFiltrados = [];
+
+    for (const item of items) {
+      if (!item.dia) {
+        itemsFiltrados.push(item); // Tarta o ítem sin día
+        continue;
+      }
+
+      const diaLower = item.dia.toLowerCase();
+
+      if (!diasValidos.includes(diaLower)) {
+        console.warn(`❌ Día inválido: ${item.dia}. Ítem ignorado.`);
+        continue;
+      }
+
+      if (!diasHabilitados?.[diaLower]) {
+        console.warn(`⚠️ Día deshabilitado esta semana: ${diaLower}. Ítem ignorado.`);
+        continue;
+      }
+
+      itemsFiltrados.push(item); // ✅ válido
+    }
+
+    // 4️⃣ Insertar orden base
     const orderInsert = await client.query(`
       INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -21,8 +69,8 @@ export const createOrder = async (userId, items, total, {
 
     const orderId = orderInsert.rows[0].id;
 
-    // 2️⃣ Insertar cada item con nombre resuelto
-    for (const item of items) {
+    // 5️⃣ Insertar ítems
+    for (const item of itemsFiltrados) {
       const { item_type, item_id, quantity, dia, precio } = item;
 
       if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) {
@@ -33,20 +81,17 @@ export const createOrder = async (userId, items, total, {
       let finalItemId = null;
       let finalItemName = null;
 
-      // 🥧 Casos especiales como "tarta" que usan string como nombre
       if (item_type === 'tarta' || item_type === 'skip') {
         finalItemName = String(item_id);
       }
 
-      // 📦 Si es un ID numérico (daily, fijo, extra), obtener nombre desde DB
       if (['daily', 'fijo', 'extra'].includes(item_type)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
 
         const tabla =
           item_type === 'daily' ? 'daily_menu' :
           item_type === 'fijo' ? 'fixed_menu' :
-          item_type === 'extra' ? 'menu_extras' :
-          null;
+          item_type === 'extra' ? 'menu_extras' : null;
 
         if (tabla && finalItemId !== null) {
           const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
@@ -54,7 +99,6 @@ export const createOrder = async (userId, items, total, {
         }
       }
 
-      // 💾 Insertar el ítem final
       await client.query(`
         INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -71,7 +115,11 @@ export const createOrder = async (userId, items, total, {
 
     await client.query('COMMIT');
 
-    return { id: orderId, message: 'Pedido creado correctamente' };
+    return {
+      id: orderId,
+      message: 'Pedido creado correctamente',
+      cantidadItems: itemsFiltrados.length
+    };
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -81,6 +129,7 @@ export const createOrder = async (userId, items, total, {
     client.release();
   }
 };
+
 
 
 export const getOrdersByUser = async (userId) => {
@@ -105,8 +154,8 @@ export const getAllOrders = async () => {
       o.delivery_name,
       o.delivery_phone,
 
-      u.name AS nombre,
-      u.last_name AS apellido,
+    u.name AS nombre,
+  up.apellido,
       u.email,
       up.telefono,
       up.direccion_principal,
@@ -432,16 +481,18 @@ export const getOrdersByDeliveryId = async (deliveryId) => {
 export const getPedidosConItems = async (filtros = '', valores = []) => {
   // 1️⃣ Obtener todos los pedidos
   const pedidosRes = await pool.query(`
-    SELECT 
-      o.*,
-      u.name AS usuario_nombre,
-      u.email AS usuario_email,
-      u.role AS usuario_rol,
-      d.name AS repartidor_nombre,
-      up.telefono AS usuario_telefono,
-      up.direccion_principal AS direccion_principal,
-      up.direccion_secundaria AS direccion_secundaria,
-      up.apellido AS usuario_apellido -- ✅ Agregado apellido
+ SELECT 
+  o.*,
+  o.nota_admin, -- ✅ agregamos nota libre del admin
+  u.name AS usuario_nombre,
+  u.email AS usuario_email,
+  u.role AS usuario_rol,
+  d.name AS repartidor_nombre,
+  up.telefono AS usuario_telefono,
+  up.direccion_principal AS direccion_principal,
+  up.direccion_secundaria AS direccion_secundaria,
+  up.apellido AS usuario_apellido
+
     FROM orders o
     LEFT JOIN users u ON o.user_id = u.id
     LEFT JOIN users d ON o.assigned_to = d.id
@@ -494,30 +545,32 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
   }
 
   // 4️⃣ Armar la estructura final
-  const pedidosConItems = pedidos.map(pedido => {
-    const items = itemsPorPedido[pedido.id] || [];
+ const pedidosConItems = pedidos.map(pedido => {
+  const items = itemsPorPedido[pedido.id] || [];
 
-    return {
-      ...pedido,
-      usuario: {
-        nombre: pedido.usuario_nombre,
-        apellido: pedido.usuario_apellido || '', // ✅ agregado apellido
-        email: pedido.usuario_email,
-        telefono: pedido.usuario_telefono || '',
-        direccion: pedido.direccion_principal || '',
-        direccionSecundaria: pedido.direccion_secundaria || '',
-        rol: pedido.usuario_rol
-      },
-      repartidor: pedido.repartidor_nombre || null,
-      pedido: agruparItemsPorTipo(items),
-      estado: pedido.status,
-      fecha: pedido.fecha_entrega,
-      observaciones: pedido.observaciones,
-      comprobanteUrl: pedido.comprobante_url,
-      comprobanteNombre: pedido.comprobante_nombre,
-      tipo_menu: pedido.tipo_menu || 'usuario'
-    };
-  });
+  return {
+    ...pedido,
+    usuario: {
+      nombre: pedido.usuario_nombre,
+      apellido: pedido.usuario_apellido || '',
+      email: pedido.usuario_email,
+      telefono: pedido.usuario_telefono || '',
+      direccion: pedido.direccion_principal || '',
+      direccionSecundaria: pedido.direccion_secundaria || '',
+      rol: pedido.usuario_rol
+    },
+    repartidor: pedido.repartidor_nombre || null,
+    pedido: agruparItemsPorTipo(items),
+    estado: pedido.status,
+    fecha: pedido.fecha_entrega,
+    observaciones: pedido.observaciones,
+    nota_admin: pedido.nota_admin || null, // ✅ nota libre del admin
+    comprobanteUrl: pedido.comprobante_url,
+    comprobanteNombre: pedido.comprobante_nombre,
+    tipo_menu: pedido.tipo_menu || 'usuario'
+  };
+});
+
 
   return pedidosConItems;
 };
@@ -554,7 +607,30 @@ function agruparItemsPorTipo(items) {
   return agrupados;
 }
 
+export const getPedidoConItemsById = async (id) => {
+  const pedidos = await getPedidosConItems('WHERE o.id = $1', [id]);
+  const pedido = pedidos[0] || null;
 
+  if (!pedido) return null;
+
+  // Extra: traer historial de estados
+  const result = await pool.query(
+    'SELECT status, changed_at FROM order_status_history WHERE order_id = $1 ORDER BY changed_at ASC',
+    [id]
+  );
+  pedido.historialEstados = result.rows;
+
+  return pedido;
+};
+
+export const getPedidosPorEmpresa = async (empresaId) => {
+  const query = `
+    JOIN empresa_users eu ON eu.user_id = o.user_id
+    WHERE eu.empresa_id = $1
+  `;
+
+  return await getPedidosConItems(query, [empresaId]);
+};
 
 
 

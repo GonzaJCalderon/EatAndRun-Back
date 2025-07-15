@@ -36,29 +36,30 @@ export const getDailyMenuForRole = async (roleName) => {
   return result.rows;
 };
 
-export const createDailyMenuItem = async ({ name, description, price, date, for_role, image_url }) => {
+export const createDailyMenuItem = async ({ name, description, date, image_url }) => {
   const result = await pool.query(
-    'INSERT INTO daily_menu (name, description, price, date, for_role, image_url) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-    [name, description, price, date, for_role, image_url]
+    `INSERT INTO daily_menu (name, description, date, image_url)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (name, date) DO NOTHING
+     RETURNING *`,
+    [name, description, date, image_url]
   );
-  return result.rows[0];
+
+  return result.rows[0]; // Puede ser undefined si ya existía
 };
+
+
 
 
 export const updateDailyMenuItem = async (id, fields) => {
   const keys = Object.keys(fields);
+  if (keys.length === 0) throw new Error('No fields provided');
 
-  if (keys.length === 0) {
-    throw new Error('⚠️ No se proporcionaron campos para actualizar.');
-  }
-
-  // Construir la parte del SET dinámicamente
-  const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', ');
+  const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(', ');
   const values = Object.values(fields);
 
-  // Agregamos el id como último parámetro para el WHERE
   const query = `
-    UPDATE daily_menu
+    UPDATE fixed_menu
     SET ${setClause}
     WHERE id = $${keys.length + 1}
     RETURNING *;

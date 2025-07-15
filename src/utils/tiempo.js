@@ -1,8 +1,9 @@
 // src/utils/tiempo.js (BACKEND)
-
 import dayjs from 'dayjs';
-import 'dayjs/locale/es.js'; // 👈 esta línea es la clave
+import 'dayjs/locale/es.js';
+import isBetween from 'dayjs/plugin/isBetween.js'; // 🧩 este plugin faltaba
 
+dayjs.extend(isBetween); // ⬅️ esto es lo que te faltaba
 dayjs.locale('es');
 
 const HORA_CORTE = 6;

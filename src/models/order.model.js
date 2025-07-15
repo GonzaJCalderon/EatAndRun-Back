@@ -26,14 +26,25 @@ export const createOrder = async (userId, items, total, {
     if (semanaRes.rows.length === 0) {
       throw new Error('No hay semana habilitada actualmente');
     }
+const {
+  semana_inicio,
+  semana_fin,
+  dias_habilitados: diasHabilitados // ✅ alias para evitar confusión
+} = semanaRes.rows[0];
 
-    const { semana_inicio, semana_fin, dias_habilitados } = semanaRes.rows[0];
 
     // 2️⃣ Validar fecha_entrega dentro de rango semanal
-    const fecha = dayjs(fechaEntrega);
-    if (!fecha.isBetween(semana_inicio, semana_fin, 'day', '[]')) {
-      throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
-    }
+// 2️⃣ Validar fecha_entrega dentro de rango semanal
+const fechaDia = dayjs(fechaEntrega); // ⬅️ nombre correcto
+console.log('📆 Validando fecha de entrega:', fechaDia.format('YYYY-MM-DD'));
+
+const inicio = dayjs(semana_inicio);
+const fin = dayjs(semana_fin);
+
+if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
+  throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
+}
+
 
     // 3️⃣ Filtrar ítems inválidos
     const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];

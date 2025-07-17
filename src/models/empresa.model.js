@@ -1,6 +1,7 @@
 // models/empresa.model.js
 import { pool } from '../db/index.js';
 
+
 import { nanoid } from 'nanoid';
 
 /**

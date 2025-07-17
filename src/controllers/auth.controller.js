@@ -1,4 +1,4 @@
-import { register, login } from '../services/auth.service.js';
+import { register, login, completarPerfilFaltante } from '../services/auth.service.js';
 import { createUserProfile } from '../models/userProfile.model.js';
 import { createEmpresa } from '../models/empresa.model.js';
 import jwt from 'jsonwebtoken';
@@ -6,14 +6,11 @@ import { pool } from '../db/index.js';
 import bcrypt from 'bcryptjs';
 import { sendResetPasswordEmail, sendWelcomeEmail } from '../utils/mailer.js';
 import { getUserById } from '../services/auth.service.js';
-import {
-  encontrarEmpresaPorCodigo,
-  isUserInEmpresa,
-  asociarEmpleadoAEmpresa
-} from '../models/empresaUsers.model.js';
+import { generarCodigoInvitacion } from '../models/empresa.model.js';
 
-// ✅ REGISTRO DE USUARIO
-import { completarPerfilFaltante } from '../services/auth.service.js';
+import { findUserByEmail } from '../models/user.model.js';
+
+
 
 export const registerController = async (req, res) => {
   try {
@@ -30,17 +27,19 @@ export const registerController = async (req, res) => {
       codigoInvitacion
     } = req.body;
 
-    const roleMap = {
-      1: 1, // usuario
-      2: 3, // empresa
-      3: 5, // delivery
-      4: 4, // admin
-      5: 6  // empleado 🚨
-    };
+const roleMap = {
+  usuario: 1,
+  empresa: 2,     // ✅ CORREGIDO
+  delivery: 3,    // ✅ CORREGIDO
+  admin: 4,
+  moderador: 5,
+  empleado: 6
+};
+
 
     let role_id = roleMap[role] || 1;
 
-    // Si viene código de invitación, forzamos el rol
+    // Si viene código de invitación, forzar a rol 'empleado'
     if (codigoInvitacion) {
       const empleadoRoleRes = await pool.query(`SELECT id FROM roles WHERE name = 'empleado'`);
       if (!empleadoRoleRes.rows.length) {
@@ -49,17 +48,18 @@ export const registerController = async (req, res) => {
       role_id = empleadoRoleRes.rows[0].id;
     }
 
-    // 🔎 Verificar si ya existe
+    // 🔍 Verificar si ya existe
     const existing = await findUserByEmail(email);
-
     let user;
+
     if (existing) {
       if (existing.tiene_perfil) {
         return res.status(400).json({ error: 'El email ya está registrado' });
       }
 
-      // ⛏ Si no tiene perfil, completamos el perfil faltante
+      // Si no tiene perfil, completamos
       user = existing;
+
       await completarPerfilFaltante({
         user,
         telefono,
@@ -71,9 +71,21 @@ export const registerController = async (req, res) => {
       });
 
     } else {
-      // 🙌 Registro normal
+      // Crear usuario
       user = await register({ name, apellido, email, password, role_id });
 
+      // Si es EMPRESA → crear en tabla empresa + generar código
+      if (role === 'empresa') {
+        const empresaCreada = await createEmpresa({
+          user_id: user.id,
+          razon_social: empresa?.razonSocial || `${name} ${apellido}`,
+          cuit: empresa?.cuit || '00000000000'
+        });
+
+        await generarCodigoInvitacion(empresaCreada.id);
+      }
+
+      // Completar perfil
       await completarPerfilFaltante({
         user,
         telefono,
@@ -94,6 +106,7 @@ export const registerController = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
+
 
 // ✅ LOGIN DE USUARIO
 export const loginController = async (req, res) => {

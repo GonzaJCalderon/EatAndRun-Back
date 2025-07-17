@@ -296,3 +296,16 @@ export const getEmpresaByUserId = async (userId) => {
 };
 
 
+// src/controllers/empresa.controller.js
+export const crearEmpleadoGenerico = async (empresaId, empleadoInfo) => {
+  const { name, apellido, email } = empleadoInfo;
+
+  const empleado = await crearEmpleadoDesdeEmpresa({
+    name,
+    apellido,
+    email,
+    empresa_id: empresaId
+  });
+
+  return empleado;
+};

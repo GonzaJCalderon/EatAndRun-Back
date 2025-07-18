@@ -6,12 +6,11 @@ import {
   updateDailyItem,
   deleteDailyItem,
   createDailyItemFromJson,
-  saveWeeklyUserMenu,
-  saveWeeklyCompanyMenu,
+  saveWeeklyMenu, // ✅ reemplaza saveWeeklyUserMenu / saveWeeklyCompanyMenu
   getTodayDailyMenu,
   getSpecialMenuEmpresa,
   createOrUpdateSpecialMenu,
-   updateSpecialMenuEmpresa //
+  updateSpecialMenuEmpresa
 } from '../controllers/dailyMenu.controller.js';
 
 import { verifyToken } from '../middlewares/auth.middleware.js';
@@ -20,13 +19,11 @@ import { uploadPlato } from '../middlewares/upload.middleware.js';
 
 const router = express.Router();
 
-// 👤 Usuario / Empresa / Admin: ver su menú del día
-// 👤 Usuario / Empresa / Admin: ver su menú del día
-router.get('/daily', verifyToken, authorizeRoles('usuario', 'empresa', 'admin', 'delivery'), getDailyMenu);
+// 👤 Todos los roles: ver su menú del día (ya no filtramos por rol)
+router.get('/', verifyToken, authorizeRoles('usuario', 'empresa', 'admin', 'delivery'), getDailyMenu);
 
-// 🛠️ Admin: obtener todos los menús (sin filtro)
-router.get('/daily/all', verifyToken, authorizeRoles('admin','delivery'), getAllDailyMenu);
-
+// 🛠️ Admin: obtener todos los platos sin filtro
+router.get('/all', verifyToken, authorizeRoles('admin', 'delivery'), getAllDailyMenu);
 
 // ✅ Crear nuevo plato (con imagen)
 router.post(
@@ -37,64 +34,54 @@ router.post(
   createDailyItem
 );
 
-// ✅ Editar plato (con imagen)
+// ✅ Editar plato existente (con imagen)
 router.put(
-  '/daily/:id',
+  '/:id',
   verifyToken,
   authorizeRoles('admin'),
   uploadPlato.single('image'),
   updateDailyItem
 );
 
-// 🗑️ Eliminar plato
-router.delete('/daily/:id', verifyToken, authorizeRoles('admin'), deleteDailyItem);
+// 🗑️ Eliminar un plato
+router.delete('/:id', verifyToken, authorizeRoles('admin'), deleteDailyItem);
 
 // 📥 Crear plato desde JSON (sin imagen)
 router.post(
-  '/daily/json',
+  '/json',
   verifyToken,
   authorizeRoles('admin'),
   createDailyItemFromJson
 );
 
-// 📅 Guardar menú semanal para usuarios
-router.put('/daily/usuario', verifyToken, authorizeRoles('admin'), saveWeeklyUserMenu);
+// 📅 Guardar menú semanal (unificado, sin distinción de usuario/empresa)
+router.put('/semanal', verifyToken, authorizeRoles('admin'), saveWeeklyMenu);
 
-// 🏢 Guardar menú semanal para empresa
-router.put('/daily/empresa', verifyToken, authorizeRoles('admin'), saveWeeklyCompanyMenu);
+// 📆 Obtener menú del día actual (ya no se filtra por rol)
+router.get('/today', verifyToken, getTodayDailyMenu);
 
-// 📝 Actualizar menú especial existente
-router.put(
-  '/daily/empresa/especial/:id',
-  verifyToken,
-  authorizeRoles('admin'),
-  uploadPlato.single('image'), // acepta imagen
-  updateSpecialMenuEmpresa
-);
-
-
-// 📆 Obtener menú del día actual (por rol)
-router.get('/daily/today', verifyToken, getTodayDailyMenu);
-
-
-
-// 📋 Empresa/Admin obtiene menú especial
+// 🧩 Menú especial para empresa (GET / POST / PUT)
 router.get(
-  '/daily/empresa/especial',
+  '/empresa/especial',
   verifyToken,
   authorizeRoles('empresa', 'admin'),
   getSpecialMenuEmpresa
 );
 
-// 🧩 Admin crea o actualiza menú especial de empresa
-// routes/menu.routes.js
 router.post(
-  '/daily/empresa/especial',
+  '/empresa/especial',
   verifyToken,
   authorizeRoles('admin'),
-  uploadPlato.single('image'), // NUEVO middleware
+  uploadPlato.single('image'),
   createOrUpdateSpecialMenu
 );
 
+router.put(
+  '/empresa/especial/:id',
+  verifyToken,
+  authorizeRoles('admin'),
+  uploadPlato.single('image'),
+  updateSpecialMenuEmpresa
+);
 
 export default router;

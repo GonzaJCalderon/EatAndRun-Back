@@ -16,17 +16,25 @@ export const getFixedMenu = async (req, res) => {
 // controllers/fixedMenu.controller.js
 export const createFixedItem = async (req, res) => {
   try {
-    const { name, description, price, for_role } = req.body;
+    const { name, description, price, for_role, image_url } = req.body;
 
-    const imageUrl = req.file?.path || null; // ✅ correcta obtención desde multer/cloudinary
+    const imageUrl = req.file?.path || image_url || null;
 
-    const item = await createFixedMenuItem({ name, description, price, for_role, image_url: imageUrl });
+    const item = await createFixedMenuItem({
+      name,
+      description,
+      price,
+      for_role,
+      image_url: imageUrl
+    });
+
     res.status(201).json(item);
   } catch (err) {
     console.error('❌ Error al crear plato fijo:', err);
     res.status(500).json({ error: 'Error al crear el plato' });
   }
 };
+
 
 
 

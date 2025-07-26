@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { getSemanaActualController, toggleSemanaHabilitadaController, actualizarCierreSemanaController, actualizarSemanaCompleta, actualizarDiasHabilitadosController, crearSemanaSiNoExisteController  } from '../controllers/menu.controller.js';
+import { getSemanaActualController, 
+    toggleSemanaHabilitadaController, 
+    actualizarCierreSemanaController, 
+    actualizarSemanaCompleta,
+     actualizarDiasHabilitadosController,
+      crearSemanaSiNoExisteController, 
+      getSemanasHabilitadasController  } from '../controllers/menu.controller.js';
 
 const router = Router();
 
@@ -14,6 +20,7 @@ router.put('/dias', actualizarDiasHabilitadosController);
 
 router.post('/crear-auto', crearSemanaSiNoExisteController);
 
+router.get('/activas', getSemanasHabilitadasController);
 
 
 export default router;

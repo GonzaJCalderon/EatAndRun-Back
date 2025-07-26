@@ -2,6 +2,7 @@ import { pool } from '../db/index.js';
 import dayjs from '../utils/tiempo.js';
 
 
+
 export const createOrder = async (userId, items, total, {
   fechaEntrega,
   observaciones,
@@ -14,64 +15,74 @@ export const createOrder = async (userId, items, total, {
   try {
     await client.query('BEGIN');
 
-    // 1️⃣ Buscar semana habilitada actual
-    const semanaRes = await client.query(`
-      SELECT semana_inicio, semana_fin, dias_habilitados
-      FROM menu_semana
-      WHERE NOW()::date BETWEEN semana_inicio AND semana_fin
-      ORDER BY semana_inicio DESC
-      LIMIT 1
-    `);
+    // 🔍 Buscar o crear semana automáticamente
+    const buscarSemana = async (fecha) => {
+      const query = `
+        SELECT semana_inicio, semana_fin, dias_habilitados
+        FROM menu_semana
+        WHERE habilitado = true
+          AND $1::date BETWEEN semana_inicio AND semana_fin
+        LIMIT 1
+      `;
+      const { rows } = await client.query(query, [fecha]);
+      return rows[0] || null;
+    };
 
-    if (semanaRes.rows.length === 0) {
-      throw new Error('No hay semana habilitada actualmente');
+    let semana = await buscarSemana(fechaEntrega);
+
+    if (!semana) {
+      // ⚙️ Crear semana automáticamente
+      const fecha = dayjs(fechaEntrega);
+      const lunes = fecha.startOf('week').add(1, 'day').toDate();
+      const viernes = fecha.startOf('week').add(5, 'day').toDate();
+      const cierre = dayjs(viernes).set('hour', 20).set('minute', 0).set('second', 0).toDate();
+
+      const dias_habilitados = {
+        lunes: true,
+        martes: true,
+        miercoles: true,
+        jueves: true,
+        viernes: true
+      };
+
+      const insert = await client.query(`
+        INSERT INTO menu_semana (semana_inicio, semana_fin, habilitado, cierre, dias_habilitados)
+        VALUES ($1, $2, true, $3, $4)
+        RETURNING semana_inicio, semana_fin, dias_habilitados
+      `, [lunes, viernes, cierre, dias_habilitados]);
+
+      semana = insert.rows[0];
     }
-const {
-  semana_inicio,
-  semana_fin,
-  dias_habilitados: diasHabilitados // ✅ alias para evitar confusión
-} = semanaRes.rows[0];
 
+    // 2️⃣ Validar rango
+    const fechaDia = dayjs(fechaEntrega);
+    const inicio = dayjs(semana.semana_inicio);
+    const fin = dayjs(semana.semana_fin);
 
-    // 2️⃣ Validar fecha_entrega dentro de rango semanal
-// 2️⃣ Validar fecha_entrega dentro de rango semanal
-const fechaDia = dayjs(fechaEntrega); // ⬅️ nombre correcto
-console.log('📆 Validando fecha de entrega:', fechaDia.format('YYYY-MM-DD'));
+    if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
+      throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${inicio.format('YYYY-MM-DD')} - ${fin.format('YYYY-MM-DD')})`);
+    }
 
-const inicio = dayjs(semana_inicio);
-const fin = dayjs(semana_fin);
-
-if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
-  throw new Error(`La fecha de entrega (${fechaEntrega}) no está dentro de la semana habilitada (${semana_inicio} - ${semana_fin})`);
-}
-
-
-    // 3️⃣ Filtrar ítems inválidos
+    // 3️⃣ Filtrar ítems válidos según días habilitados
+    const diasHabilitados = semana.dias_habilitados;
     const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
     const itemsFiltrados = [];
 
     for (const item of items) {
       if (!item.dia) {
-        itemsFiltrados.push(item); // Tarta o ítem sin día
+        itemsFiltrados.push(item);
         continue;
       }
 
       const diaLower = item.dia.toLowerCase();
 
-      if (!diasValidos.includes(diaLower)) {
-        console.warn(`❌ Día inválido: ${item.dia}. Ítem ignorado.`);
-        continue;
-      }
+      if (!diasValidos.includes(diaLower)) continue;
+      if (!diasHabilitados?.[diaLower]) continue;
 
-      if (!diasHabilitados?.[diaLower]) {
-        console.warn(`⚠️ Día deshabilitado esta semana: ${diaLower}. Ítem ignorado.`);
-        continue;
-      }
-
-      itemsFiltrados.push(item); // ✅ válido
+      itemsFiltrados.push(item);
     }
 
-    // 4️⃣ Insertar orden base
+    // 4️⃣ Crear orden
     const orderInsert = await client.query(`
       INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -84,10 +95,7 @@ if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
     for (const item of itemsFiltrados) {
       const { item_type, item_id, quantity, dia, precio } = item;
 
-      if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) {
-        console.warn(`⚠️ Tipo de ítem no soportado: ${item_type}`);
-        continue;
-      }
+      if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) continue;
 
       let finalItemId = null;
       let finalItemName = null;
@@ -98,7 +106,6 @@ if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
 
       if (['daily', 'fijo', 'extra'].includes(item_type)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
-
         const tabla =
           item_type === 'daily' ? 'daily_menu' :
           item_type === 'fijo' ? 'fixed_menu' :
@@ -140,6 +147,7 @@ if (!fechaDia.isBetween(inicio, fin, 'day', '[]')) {
     client.release();
   }
 };
+
 
 
 

@@ -1,22 +1,35 @@
+// /controllers/fixedMenu.controller.js
+
 import {
   getAllFixedMenu,
   createFixedMenuItem,
   updateFixedMenuItem,
   deleteFixedMenuItem,
-getFixedMenuForRole 
+  getFixedMenuForRole
 } from '../models/fixedMenu.model.js';
-
-
 
 export const getFixedMenu = async (req, res) => {
   const items = await getAllFixedMenu();
   res.json(items);
 };
 
+
 // controllers/fixedMenu.controller.js
+
 export const createFixedItem = async (req, res) => {
+  console.log('💡 LLEGO A createFixedItem');
+  console.log('body:', req.body);
+  console.log('file:', req.file);
+
   try {
     const { name, description, price, for_role, image_url } = req.body;
+
+    // Más logs para ver los campos
+    console.log('name:', name);
+    console.log('description:', description);
+    console.log('price:', price);
+    console.log('for_role:', for_role);
+    console.log('image_url:', image_url);
 
     const imageUrl = req.file?.path || image_url || null;
 
@@ -34,6 +47,8 @@ export const createFixedItem = async (req, res) => {
     res.status(500).json({ error: 'Error al crear el plato' });
   }
 };
+
+
 
 
 
@@ -58,14 +73,12 @@ export const updateFixedItem = async (req, res) => {
   }
 };
 
-
 export const deleteFixedItem = async (req, res) => {
   const { id } = req.params;
   await deleteFixedMenuItem(id);
   res.json({ message: 'Item eliminado' });
 };
 
-// ✅ CORRECTO
 export const getFixedMenuByRole = async (req, res) => {
   const { role } = req.query;
 
@@ -81,6 +94,3 @@ export const getFixedMenuByRole = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener menú por rol' });
   }
 };
-
-
-

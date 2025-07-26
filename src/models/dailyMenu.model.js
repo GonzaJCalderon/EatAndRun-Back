@@ -44,9 +44,9 @@ export const createDailyMenuItem = async ({ name, description, date, image_url }
      RETURNING *`,
     [name, description, date, image_url]
   );
-
   return result.rows[0]; // Puede ser undefined si ya existía
 };
+
 
 
 
@@ -59,7 +59,7 @@ export const updateDailyMenuItem = async (id, fields) => {
   const values = Object.values(fields);
 
   const query = `
-    UPDATE fixed_menu
+    UPDATE daily_menu
     SET ${setClause}
     WHERE id = $${keys.length + 1}
     RETURNING *;
@@ -68,6 +68,7 @@ export const updateDailyMenuItem = async (id, fields) => {
   const result = await pool.query(query, [...values, id]);
   return result.rows[0];
 };
+
 
 export const getSpecialMenuForCompany = async () => {
   const result = await pool.query(

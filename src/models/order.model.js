@@ -491,26 +491,29 @@ export const getOrdersByDeliveryId = async (deliveryId) => {
 
 export const getPedidosConItems = async (filtros = '', valores = []) => {
   // 1️⃣ Obtener todos los pedidos
-  const pedidosRes = await pool.query(`
- SELECT 
-  o.*,
-  o.nota_admin, -- ✅ agregamos nota libre del admin
-  u.name AS usuario_nombre,
-  u.email AS usuario_email,
-  u.role AS usuario_rol,
-  d.name AS repartidor_nombre,
-  up.telefono AS usuario_telefono,
-  up.direccion_principal AS direccion_principal,
-  up.direccion_secundaria AS direccion_secundaria,
-  up.apellido AS usuario_apellido
+const pedidosRes = await pool.query(`
+  SELECT 
+    o.*,
+    o.nota_admin,
+    u.name AS usuario_nombre,
+    u.email AS usuario_email,
+    u.role AS usuario_rol,
+    d.name AS repartidor_nombre,
+    up.telefono AS usuario_telefono,
+    up.direccion_principal AS direccion_principal,
+    up.direccion_secundaria AS direccion_secundaria,
+    up.apellido AS usuario_apellido,
+    em.razon_social AS empresa_nombre -- <--- AQUI TRAES EL NOMBRE DE LA EMPRESA
+  FROM orders o
+  LEFT JOIN users u ON o.user_id = u.id
+  LEFT JOIN users d ON o.assigned_to = d.id
+  LEFT JOIN user_profiles up ON up.user_id = u.id
+  LEFT JOIN empresa_users eu ON eu.user_id = u.id -- <--- AQUI ASOCIAS EL USER CON EMPRESA
+  LEFT JOIN empresas em ON em.id = eu.empresa_id -- <--- AQUI TRAES LA EMPRESA
+  ${filtros}
+  ORDER BY o.created_at DESC
+`, valores);
 
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN users d ON o.assigned_to = d.id
-    LEFT JOIN user_profiles up ON up.user_id = u.id
-    ${filtros}
-    ORDER BY o.created_at DESC
-  `, valores);
 
   const pedidos = pedidosRes.rows;
   if (pedidos.length === 0) return [];
@@ -556,7 +559,7 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
   }
 
   // 4️⃣ Armar la estructura final
- const pedidosConItems = pedidos.map(pedido => {
+const pedidosConItems = pedidos.map(pedido => {
   const items = itemsPorPedido[pedido.id] || [];
 
   return {
@@ -570,17 +573,19 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
       direccionSecundaria: pedido.direccion_secundaria || '',
       rol: pedido.usuario_rol
     },
+    empresa_nombre: pedido.empresa_nombre || null, // 👈 NUEVO
     repartidor: pedido.repartidor_nombre || null,
     pedido: agruparItemsPorTipo(items),
     estado: pedido.status,
     fecha: pedido.fecha_entrega,
     observaciones: pedido.observaciones,
-    nota_admin: pedido.nota_admin || null, // ✅ nota libre del admin
+    nota_admin: pedido.nota_admin || null,
     comprobanteUrl: pedido.comprobante_url,
     comprobanteNombre: pedido.comprobante_nombre,
     tipo_menu: pedido.tipo_menu || 'usuario'
   };
 });
+
 
 
   return pedidosConItems;
@@ -635,13 +640,13 @@ export const getPedidoConItemsById = async (id) => {
 };
 
 export const getPedidosPorEmpresa = async (empresaId) => {
+  // NO agregues otro JOIN, solo el filtro
   const query = `
-    JOIN empresa_users eu ON eu.user_id = o.user_id
     WHERE eu.empresa_id = $1
   `;
-
   return await getPedidosConItems(query, [empresaId]);
 };
+
 
 
 

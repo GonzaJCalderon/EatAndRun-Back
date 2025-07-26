@@ -14,23 +14,22 @@ import { getPedidosPorEmpresa } from '../models/order.model.js';
 
 
 
+// src/controllers/empresa.controller.js
 export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa_id }) => {
-  // 1. Buscar usuario por email
   let user = await findUserByEmail(email);
 
   if (!user) {
-    // 2. Crear si no existe
     const res = await createUser({
-      name,
-      last_name: apellido,
-      email,
-      password: 'temporal123', // Podés mejorar esto
-      role: 'empleado'
-    });
+  name,
+  apellido, // ✅ BIEN
+  email,
+  password: 'temporal123',
+  role_id: 6 // o el que uses para "empleado"
+});
+
     user = res;
   }
 
-  // 3. Asociar a empresa como empleado (si no estaba antes)
   const yaExiste = await pool.query(
     `SELECT * FROM empresa_users WHERE empresa_id = $1 AND user_id = $2`,
     [empresa_id, user.id]
@@ -48,6 +47,8 @@ export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa
 
   return user;
 };
+
+
 export const getEmpresaInfo = async (req, res) => {
   const userId = req.user.id;
 
@@ -309,3 +310,5 @@ export const crearEmpleadoGenerico = async (empresaId, empleadoInfo) => {
 
   return empleado;
 };
+
+

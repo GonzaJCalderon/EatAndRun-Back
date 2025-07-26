@@ -27,7 +27,7 @@ router.get('/all', verifyToken, authorizeRoles('admin', 'delivery'), getAllDaily
 
 // ✅ Crear nuevo plato (con imagen)
 router.post(
-  '/daily',
+  '/',
   verifyToken,
   authorizeRoles('admin'),
   uploadPlato.single('image'),

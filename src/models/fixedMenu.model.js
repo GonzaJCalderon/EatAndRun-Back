@@ -18,8 +18,7 @@ export const createFixedMenuItem = async ({ name, description, price, image_url 
   return result.rows[0];
 };
 
-
-// Actualizar plato (opcional: podés también manejar imagen acá si querés)
+// Actualizar plato
 export const updateFixedMenuItem = async (id, fields) => {
   const keys = Object.keys(fields);
   if (keys.length === 0) throw new Error('No fields provided');
@@ -38,15 +37,12 @@ export const updateFixedMenuItem = async (id, fields) => {
   return result.rows[0];
 };
 
-
-
 // Eliminar plato
 export const deleteFixedMenuItem = async (id) => {
   await pool.query('DELETE FROM fixed_menu WHERE id = $1', [id]);
 };
 
-
-// ✅ Solo recibe el `role`, no `req/res`
+// Obtener menú solo para cierto rol
 export const getFixedMenuForRole = async (role) => {
   const result = await pool.query(
     `SELECT * FROM fixed_menu 

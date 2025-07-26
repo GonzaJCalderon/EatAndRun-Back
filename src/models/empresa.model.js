@@ -31,3 +31,21 @@ export const createEmpresa = async ({ user_id, razon_social, cuit }) => {
   );
   return result.rows[0];
 };
+
+
+export const getEmpleadosByEmpresa = async (empresaId) => {
+  const result = await pool.query(
+    `SELECT 
+       u.id, 
+       u.name, 
+       u.last_name AS apellido, -- 👈 renombrado para frontend
+       u.email, 
+       eu.rol
+     FROM empresa_users eu
+     JOIN users u ON u.id = eu.user_id
+     WHERE eu.empresa_id = $1`,
+    [empresaId]
+  );
+
+  return result.rows;
+};

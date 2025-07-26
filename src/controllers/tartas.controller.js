@@ -16,12 +16,15 @@ export const listarTartas = async (req, res) => {
 
 export const crearTarta = async (req, res) => {
   try {
+    console.log('➡️ Recibido en crearTarta:', req.body); // 👈
     const nueva = await createTarta(req.body);
     res.status(201).json(nueva);
   } catch (err) {
+    console.error('❌ Error crear tarta:', err);
     res.status(400).json({ error: 'Error al crear tarta', detail: err.message });
   }
 };
+
 
 export const editarTarta = async (req, res) => {
   try {

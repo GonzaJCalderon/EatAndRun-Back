@@ -9,17 +9,17 @@ const roleMap = {
   6: "empleado", // 👈 AGREGADO
 };
 
-
 export const createUser = async ({ name, apellido, email, password, role_id }) => {
   const result = await pool.query(
     `INSERT INTO users (name, last_name, email, password, role_id)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id, name, last_name, email, role_id`,
-    [name, apellido, email, password, role_id]
+    [name, apellido, email, password, role_id] // <- ACÁ
   );
 
   return result.rows[0];
 };
+
 
 
 export const findUserByEmail = async (email) => {

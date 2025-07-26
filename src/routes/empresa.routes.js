@@ -1,8 +1,8 @@
-// src/routes/empresa.routes.js
+import { pool } from '../db/index.js';
+
 import express from 'express';
 import { verifyToken } from '../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../middlewares/role.middleware.js';
-import { pool } from '../db/index.js';
 
 import {
   getEmpresaInfo,
@@ -15,6 +15,7 @@ import {
 } from '../controllers/empresa.controller.js';
 
 import { crearEmpleadoDesdeEmpresa } from '../services/createEmpleado.js';
+
 
 
 const router = express.Router();

@@ -1,9 +1,3 @@
-import { pool } from '../db/index.js';
-import bcrypt from 'bcryptjs';
-import { findUserByEmail, createUser } from '../models/user.model.js';
-import { createEmpresaUser } from '../models/empresaUsers.model.js';
-import { sendWelcomeEmail } from '../utils/mailer.js';
-
 export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa_id }) => {
   let user = await findUserByEmail(email);
 
@@ -17,7 +11,7 @@ export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa
     const result = await pool.query(
       `INSERT INTO users (name, last_name, email, password, role_id)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, email`,
+       RETURNING id, name, last_name, email`, // ✅ Aquí el fix
       [name, apellido, email, hash, roleEmpleadoId]
     );
 
@@ -43,6 +37,6 @@ export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa
   });
 
   return passwordAuto
-    ? { ...user, password: passwordAuto } // Si es nuevo → devolvemos la contraseña
-    : user; // Si ya existía → solo devolvemos el user
+    ? { ...user, password: passwordAuto }
+    : user;
 };

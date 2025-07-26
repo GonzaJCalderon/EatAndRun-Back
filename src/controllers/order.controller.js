@@ -5,10 +5,16 @@ import {
   getAllOrders,
   updateOrderStatus,
   getOrderStatusHistory,
-  saveOrderComprobante
+  saveOrderComprobante,
+ getPedidoConItemsById, 
+ getPedidosConItems 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
+
+
+
+
 
 
 
@@ -63,8 +69,9 @@ export const createOrderController = async (req, res) => {
   }
 
   try {
-const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
-    const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
+const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+
     const semana = result.rows[0];
     if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
     if (semana.cierre && new Date(semana.cierre) < new Date()) {
@@ -95,10 +102,10 @@ const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
 // Obtener pedidos del usuario actual
 export const getUserOrdersController = async (req, res) => {
   try {
-    const orders = await getOrdersByUser(req.user.id);
-    res.json(orders);
+    const pedidos = await getPedidosConItems('WHERE o.user_id = $1', [req.user.id]);
+    res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener pedidos del usuario' });
+    res.status(500).json({ error: 'Error al obtener pedidos del usuario', details: err.message });
   }
 };
 
@@ -299,28 +306,24 @@ export const createOrderWithUploadController = async (req, res) => {
 
 
 
+
 export const getOrderByIdController = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(`
-      SELECT o.*, u.name AS usuario_nombre, u.email, up.telefono, up.direccion_principal
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      WHERE o.id = $1
-    `, [id]);
+    const pedido = await getPedidoConItemsById(id);
 
-    if (result.rows.length === 0) {
+    if (!pedido) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    res.json(pedido);
   } catch (err) {
     console.error('❌ Error al obtener pedido:', err);
-    res.status(500).json({ error: 'Error al obtener pedido' });
+    res.status(500).json({ error: 'Error al obtener pedido', details: err.message });
   }
 };
+
 
 
 export const updatePedidoFields = async (req, res) => {
@@ -384,3 +387,7 @@ export const updateOrderItemsController = async (req, res) => {
     client.release();
   }
 };
+
+
+
+

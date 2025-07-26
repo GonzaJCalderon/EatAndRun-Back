@@ -11,22 +11,17 @@ import {
 import { roleMap, roleReverseMap } from '../constants/roles.js';
 
 // 📥 Obtener menú del día según rol
+// 📥 Obtener TODO el menú del día (para cualquier rol)
 export const getDailyMenu = async (req, res) => {
-const roleName = req.user?.role; // ✅ ahora sí: "admin", "empresa", etc.
-
-
-  if (!roleName) {
-    return res.status(403).json({ error: 'Rol no autorizado para ver menú del día' });
-  }
-
   try {
-    const items = await getDailyMenuForRole(roleName === 'admin' ? 'usuario' : roleName);
-    res.json(items);
+    const result = await pool.query('SELECT * FROM daily_menu ORDER BY date DESC');
+    res.json(result.rows);
   } catch (err) {
     console.error('❌ Error al obtener menú del día:', err);
     res.status(500).json({ error: 'Error interno al obtener el menú del día' });
   }
 };
+
 
 // 🔓 Obtener todos los platos (solo admin)
 export const getAllDailyMenu = async (req, res) => {
@@ -123,9 +118,9 @@ export const createDailyItemFromJson = async (req, res) => {
   }
 };
 
-// 📆 Guardar menú semanal para usuario
-export const saveWeeklyUserMenu = async (req, res) => {
+export const saveWeeklyMenu = async (req, res) => {
   const { menu } = req.body;
+
   if (!menu || typeof menu !== 'object') {
     return res.status(400).json({ error: 'Formato inválido del menú' });
   }
@@ -133,6 +128,7 @@ export const saveWeeklyUserMenu = async (req, res) => {
   const diasValidos = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
   const errores = [];
   const resultados = [];
+  const yaInsertados = new Set(); // nombre+fecha para evitar duplicados
 
   try {
     for (const dia of diasValidos) {
@@ -146,15 +142,23 @@ export const saveWeeklyUserMenu = async (req, res) => {
           continue;
         }
 
+        const key = `${nombre}-${fecha}`;
+        if (yaInsertados.has(key)) {
+          errores.push({ dia, nombre, error: 'Duplicado en menú del mismo día' });
+          continue;
+        }
+
         const item = await createDailyMenuItem({
           name: nombre,
           description: descripcion || '',
           date: fecha,
-          for_role: 'usuario',
           image_url: img
         });
 
-        resultados.push(item);
+        if (item) {
+          resultados.push(item);
+          yaInsertados.add(key);
+        }
       }
     }
 
@@ -165,78 +169,19 @@ export const saveWeeklyUserMenu = async (req, res) => {
   }
 };
 
-// 📆 Guardar menú semanal para empresa
-export const saveWeeklyCompanyMenu = async (req, res) => {
-  const { menu } = req.body;
-  if (!menu || typeof menu !== 'object') {
-    return res.status(400).json({ error: 'Formato inválido del menú' });
-  }
 
-  const diasValidos = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
-  const errores = [];
-  const resultados = [];
-
-  try {
-    for (const dia of diasValidos) {
-      const platosDelDia = menu[dia] || [];
-      const fecha = getFechaDeProximoDia(dia);
-
-      for (const plato of platosDelDia) {
-        const { nombre, descripcion, img } = plato;
-        if (!nombre || !img) {
-          errores.push({ dia, nombre, error: 'Faltan campos requeridos' });
-          continue;
-        }
-
-        const item = await createDailyMenuItem({
-          name: nombre,
-          description: descripcion || '',
-          date: fecha,
-          for_role: 'empresa',
-          image_url: img
-        });
-
-        resultados.push(item);
-      }
-    }
-
-    res.json({ message: 'Menú empresa guardado', guardados: resultados.length, errores });
-  } catch (err) {
-    console.error('❌ Error al guardar el menú empresa:', err);
-    res.status(500).json({ error: 'Error interno', details: err.message });
-  }
-};
 
 // 🔍 Obtener menú del día actual según rol
 
 
 
 export const getTodayDailyMenu = async (req, res) => {
-  let rawRole = req.user?.role;
-
-  // Si el role ya es string (ej: 'delivery'), usalo directo
-  // Si es un número (ej: 3), lo convertimos con roleMap
-  const roleName = typeof rawRole === 'string'
-    ? rawRole
-    : roleMap[rawRole];
-
-  console.log('🧾 [Menu] Raw role:', rawRole, '→ Resolved:', roleName);
-
-  if (!roleName) {
-    return res.status(403).json({ error: 'Rol no autorizado' });
-  }
-
-  // delivery y admin ven menú de usuario
-  const effectiveRole = ['admin', 'delivery'].includes(roleName)
-    ? 'usuario'
-    : roleName;
-
   const today = new Date().toISOString().slice(0, 10);
 
   try {
     const result = await pool.query(
-      'SELECT * FROM daily_menu WHERE for_role = $1 AND date = $2 ORDER BY name ASC',
-      [effectiveRole, today]
+      'SELECT * FROM daily_menu WHERE date = $1 ORDER BY name ASC',
+      [today]
     );
 
     res.json(result.rows);
@@ -245,6 +190,7 @@ export const getTodayDailyMenu = async (req, res) => {
     res.status(500).json({ error: 'Error interno al obtener menú de hoy' });
   }
 };
+
 
 // ✅ Obtener menú especial empresa (para empresa/admin)
 export const getSpecialMenuEmpresa = async (req, res) => {

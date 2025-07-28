@@ -1,3 +1,4 @@
+import { pool } from '../db/index.js';
 import {
   getAllTartas,
   createTarta,
@@ -25,16 +26,6 @@ export const crearTarta = async (req, res) => {
   }
 };
 
-
-export const editarTarta = async (req, res) => {
-  try {
-    const actualizada = await updateTarta(req.params.id, req.body);
-    res.json(actualizada);
-  } catch (err) {
-    res.status(400).json({ error: 'Error al editar tarta', detail: err.message });
-  }
-};
-
 export const eliminarTarta = async (req, res) => {
   try {
     await deleteTarta(req.params.id);
@@ -43,3 +34,27 @@ export const eliminarTarta = async (req, res) => {
     res.status(400).json({ error: 'Error al eliminar tarta' });
   }
 };
+
+
+export const editarTartaPorKey = async (req, res) => {
+  const { key } = req.params;
+  const { precio } = req.body;
+
+  try {
+    const result = await pool.query(
+      'UPDATE tartas SET precio = $1 WHERE key = $2 RETURNING *',
+      [precio, key]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarta no encontrada con ese key' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('❌ Error al editar tarta por key:', err);
+    res.status(400).json({ error: 'Error al editar tarta', detail: err.message });
+  }
+};
+
+

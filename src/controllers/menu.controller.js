@@ -245,3 +245,68 @@ export const getSemanasHabilitadasController = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener semanas activas' });
   }
 };
+
+
+
+export const getSemanasDisponiblesParaPedidosController = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT *
+      FROM menu_semana
+      WHERE inicio_toma_pedidos <= CURRENT_DATE
+        AND cierre > NOW()
+        AND habilitado = true
+      ORDER BY semana_inicio ASC
+    `);
+
+    return res.json({ semanas: result.rows });
+  } catch (error) {
+    console.error('❌ Error al obtener semanas con pedidos disponibles:', error);
+    return res.status(500).json({ error: 'Error interno al obtener semanas disponibles' });
+  }
+};
+
+export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: 'ID de semana requerido' });
+  }
+
+  try {
+    // 1. Obtener semana por ID
+    const semanaResult = await pool.query(`
+      SELECT semana_inicio, semana_fin FROM menu_semana WHERE id = $1
+    `, [id]);
+
+    if (semanaResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Semana no encontrada' });
+    }
+
+    const { semana_inicio, semana_fin } = semanaResult.rows[0];
+
+    // 2. Verificar si hay pedidos en ese rango de fechas
+    const pedidos = await pool.query(`
+      SELECT COUNT(*) FROM orders
+      WHERE fecha_entrega BETWEEN $1 AND $2
+    `, [semana_inicio, semana_fin]);
+
+    const totalPedidos = parseInt(pedidos.rows[0].count, 10);
+
+    if (totalPedidos > 0) {
+      return res.status(400).json({
+        error: '⚠️ No se puede eliminar la semana: hay pedidos en el rango de fechas'
+      });
+    }
+
+    // 3. Eliminar semana
+    await pool.query(`DELETE FROM menu_semana WHERE id = $1`, [id]);
+
+    return res.json({ message: '✅ Semana eliminada correctamente' });
+  } catch (error) {
+    console.error('❌ Error al eliminar semana:', error);
+    return res.status(500).json({ error: 'Error interno al eliminar semana' });
+  }
+};
+
+

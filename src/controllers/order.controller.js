@@ -11,8 +11,7 @@ import {
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
-
-
+import { getConfig } from '../models/config.model.js';
 
 
 
@@ -44,12 +43,12 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 };
 
 
-
 export const createOrderController = async (req, res) => {
-  const { items, total, observaciones, metodoPago, fecha_entrega } = req.body;
+  const { items, observaciones, metodoPago, fecha_entrega } = req.body;
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
 
+  // 🛡️ Validaciones básicas
   if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
   if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
 
@@ -69,15 +68,78 @@ export const createOrderController = async (req, res) => {
   }
 
   try {
-const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
-const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
-
+    // 🗓️ Validar semana activa
+    const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
+    const result = await pool.query(
+      'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
+      [lunesSemana]
+    );
     const semana = result.rows[0];
+
     if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
     if (semana.cierre && new Date(semana.cierre) < new Date()) {
       return res.status(400).json({ error: '⏰ El plazo ya cerró' });
     }
 
+    // ✅ Obtener precios actualizados
+    const precios = await getConfig('precios');
+    if (!precios) return res.status(500).json({ error: 'No se pudo obtener configuración de precios' });
+
+    // 💸 Calcular total
+    let total = 0;
+    let totalPlatos = 0;
+    const diasConPlato = new Set();
+
+    for (const item of items) {
+      const cantidad = parseInt(item.quantity) || 0;
+
+      switch (item.item_type) {
+        case 'daily':
+        case 'fijo':
+          totalPlatos += cantidad;
+          total += cantidad * precios.plato;
+          diasConPlato.add(item.dia);
+          break;
+
+        case 'extra':
+          const precioExtra = {
+            1: precios.postre,
+            2: precios.ensalada,
+            3: precios.proteina
+          }[item.item_id];
+
+          if (precioExtra) {
+            total += cantidad * precioExtra;
+          }
+          break;
+
+       case 'tarta': {
+  const tartaRes = await pool.query('SELECT precio FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1', [item.item_id]);
+  const tarta = tartaRes.rows[0];
+  if (!tarta) throw new Error(`Tarta '${item.item_id}' no encontrada`);
+
+  total += cantidad * tarta.precio;
+  break;
+}
+
+
+        case 'skip':
+          break;
+
+        default:
+          console.warn('⚠️ Tipo de item desconocido:', item.item_type);
+      }
+    }
+
+    // 🚚 Sumar envío por día con plato
+    total += diasConPlato.size * precios.envio;
+
+    // 🎉 Descuento si supera umbral
+    if (totalPlatos >= precios.umbral_descuento) {
+      total -= totalPlatos * precios.descuento_por_plato;
+    }
+
+    // 🧾 Crear pedido
     const order = await createOrder(userId, items, total, {
       fechaEntrega: fecha_entrega,
       observaciones,
@@ -91,6 +153,7 @@ const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHER
     res.status(500).json({ error: 'Error al crear el pedido', details: err.message });
   }
 };
+
 
 
 
@@ -388,6 +451,63 @@ export const updateOrderItemsController = async (req, res) => {
   }
 };
 
+
+
+ const calcularTotalPedido = async (items) => {
+  const precios = await getConfig('precios');
+  if (!precios) throw new Error('❌ No hay configuración de precios');
+
+  let total = 0;
+  let totalPlatos = 0;
+  let diasConPlato = new Set();
+
+  for (const item of items) {
+    const cantidad = parseInt(item.quantity) || 0;
+
+    switch (item.item_type) {
+      case 'daily':
+      case 'fijo':
+        totalPlatos += cantidad;
+        total += cantidad * precios.plato;
+        diasConPlato.add(item.dia);
+        break;
+
+      case 'extra':
+        // el precio debe venir del ID o hardcodearlo (opcional)
+        const precioExtra = {
+          1: precios.postre,
+          2: precios.ensalada,
+          3: precios.proteina
+        }[item.item_id];
+
+        if (precioExtra) {
+          total += cantidad * precioExtra;
+        }
+        break;
+
+      case 'tarta':
+        total += cantidad * precios.tarta;
+        break;
+
+      case 'skip':
+        // no suma nada
+        break;
+
+      default:
+        console.warn('⚠️ Tipo de item desconocido:', item);
+    }
+  }
+
+  // Sumar envío por cada día con plato
+  total += diasConPlato.size * precios.envio;
+
+  // Descuento si supera el umbral
+  if (totalPlatos >= precios.umbral_descuento) {
+    total -= totalPlatos * precios.descuento_por_plato;
+  }
+
+  return total;
+};
 
 
 

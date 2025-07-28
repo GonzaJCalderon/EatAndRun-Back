@@ -55,25 +55,27 @@ export const getOrCreateSemanaActual = async () => {
   }
 
   // No existe: insertamos una nueva
-  const insert = await pool.query(`
-    INSERT INTO menu_semana (semana_inicio, semana_fin, habilitado, cierre, dias_habilitados)
-    VALUES ($1, $2, true, $3, $4)
-    RETURNING *
-  `, [
-    lunes.toISOString().slice(0, 10),
-    viernes.toISOString().slice(0, 10),
-    cierre.toISOString(),
-    {
-      lunes: true,
-      martes: true,
-      miercoles: true,
-      jueves: true,
-      viernes: true
-    }
-  ]);
+const insert = await pool.query(`
+  INSERT INTO menu_semana (semana_inicio, semana_fin, habilitado, cierre, dias_habilitados, inicio_toma_pedidos)
+  VALUES ($1, $2, true, $3, $4, $5)
+  RETURNING *
+`, [
+  lunes.toISOString().slice(0, 10),
+  viernes.toISOString().slice(0, 10),
+  cierre.toISOString(),
+  {
+    lunes: true,
+    martes: true,
+    miercoles: true,
+    jueves: true,
+    viernes: true
+  },
+  new Date().toISOString().slice(0, 10) // habilitar ya mismo la toma de pedidos
+]);
+
 
   return insert.rows[0];
-};
+}; 
 
 
 
@@ -99,4 +101,27 @@ export const actualizarSemanaCompletaService = async (fecha_inicio, fecha_fin, c
      RETURNING *`,
     [fecha_inicio, fecha_fin, cierre]
   );
+};
+
+// controllers/semana.controller.js
+export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const tienePedidos = await pool.query(
+      `SELECT COUNT(*) FROM pedidos WHERE semana_id = $1`,
+      [id]
+    );
+
+    if (parseInt(tienePedidos.rows[0].count) > 0) {
+      return res.status(400).json({ error: "La semana tiene pedidos y no se puede eliminar." });
+    }
+
+    await pool.query(`DELETE FROM menu_semana WHERE id = $1`, [id]);
+
+    return res.json({ message: "Semana eliminada exitosamente." });
+  } catch (error) {
+    console.error("❌ Error al eliminar semana:", error);
+    return res.status(500).json({ error: "Error al eliminar semana" });
+  }
 };

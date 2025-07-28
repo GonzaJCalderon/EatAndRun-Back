@@ -1,15 +1,17 @@
-// src/routes/config.routes.js
 import express from 'express';
-import { getConfigController, setConfigController } from '../controllers/config.controller.js';
-import { requireAdmin } from '../middlewares/role.middleware.js'; // tu middleware de rol
-import { verifyToken } from '../middlewares/auth.middleware.js'; 
-import { authorizeRoles } from '../middlewares/role.middleware.js'; // tu middleware de autorización
+import { getPreciosController, setPreciosController } from '../controllers/config.controller.js';
+import { authorizeRoles } from '../middlewares/role.middleware.js';
+import { verifyToken } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.get('/:clave', getConfigController); // cualquiera puede leer
-router.put('/:clave', verifyToken, authorizeRoles('admin'), setConfigController);
+// 🛡️ Protección
+router.use(verifyToken);
 
+// Obtener los precios actuales
+router.get('/precios', getPreciosController);
 
+// Actualizar los precios (solo admin o moderador)
+router.put('/precios', authorizeRoles('admin', 'moderador'), setPreciosController);
 
 export default router;

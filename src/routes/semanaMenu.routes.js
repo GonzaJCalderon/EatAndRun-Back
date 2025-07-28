@@ -5,7 +5,9 @@ import { getSemanaActualController,
     actualizarSemanaCompleta,
      actualizarDiasHabilitadosController,
       crearSemanaSiNoExisteController, 
-      getSemanasHabilitadasController  } from '../controllers/menu.controller.js';
+      getSemanasHabilitadasController,
+    eliminarSemanaSiNoTienePedidos,
+getSemanasDisponiblesParaPedidosController  } from '../controllers/menu.controller.js';
 
 const router = Router();
 
@@ -21,6 +23,10 @@ router.put('/dias', actualizarDiasHabilitadosController);
 router.post('/crear-auto', crearSemanaSiNoExisteController);
 
 router.get('/activas', getSemanasHabilitadasController);
+// 📁 routes/menu.routes.js
+router.get('/disponibles', getSemanasDisponiblesParaPedidosController);
+
+router.delete('/:id', eliminarSemanaSiNoTienePedidos);
 
 
 export default router;

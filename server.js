@@ -19,6 +19,7 @@ import tartasRoutes from './src/routes/tartas.routes.js';
 import empresaRoutes from './src/routes/empresa.routes.js';
 import invitacionRoutes from './src/routes/invitacion.routes.js';
 import configRoutes from './src/routes/config.routes.js';
+import menuRoutes from './src/routes/menu.routes.js';
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use('/api/tartas', tartasRoutes);
 app.use('/api/empresa', empresaRoutes);
 app.use('/api/invitacion', invitacionRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/menu', menuRoutes);
 
 // ✅ Ruta raíz
 app.get('/', (req, res) => {

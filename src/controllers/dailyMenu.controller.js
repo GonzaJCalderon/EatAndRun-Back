@@ -176,7 +176,7 @@ export const saveWeeklyMenu = async (req, res) => {
 
 
 export const getTodayDailyMenu = async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString('en-CA'); // ✅ CORREGIDO
 
   try {
     const result = await pool.query(
@@ -280,8 +280,82 @@ function getFechaDeProximoDia(dia) {
   const diaActual = hoy.getDay(); // domingo = 0
   const diaObjetivo = diasMap[dia];
 
-  const diferencia = (diaObjetivo + 7 - diaActual) % 7 || 7;
+  if (diaObjetivo === undefined) {
+    throw new Error(`Día inválido: ${dia}`);
+  }
+
+  let diferencia = (diaObjetivo - diaActual + 7) % 7;
+
+  // ⚠️ Si hoy ya es ese día, devolvemos hoy mismo
+  if (diferencia === 0) diferencia = 0;
+
   const fechaObjetivo = new Date(hoy);
   fechaObjetivo.setDate(hoy.getDate() + diferencia);
   return fechaObjetivo.toISOString().split('T')[0];
 }
+
+
+// ✅ GET menú agrupado por día: lunes a viernes
+export const getWeeklyMenuGrouped = async (req, res) => {
+  try {
+    // Traer semana activa
+    const semanaRes = await pool.query(`
+      SELECT * FROM menu_semana
+      WHERE habilitado = true
+      ORDER BY semana_inicio DESC
+      LIMIT 1
+    `);
+
+    if (semanaRes.rowCount === 0) {
+      return res.status(404).json({ error: 'No hay semana habilitada' });
+    }
+
+    const semana = semanaRes.rows[0];
+
+    // Traer menú del día (platos diarios)
+    const dailyRes = await pool.query(`
+      SELECT * FROM daily_menu
+      WHERE date BETWEEN $1 AND $2
+    `, [semana.semana_inicio, semana.semana_fin]);
+
+    // Traer menú especial empresa
+    const specialRes = await pool.query(`
+      SELECT * FROM special_company_menu
+      WHERE date BETWEEN $1 AND $2
+    `, [semana.semana_inicio, semana.semana_fin]);
+
+    const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+    const resultado = {};
+
+    for (const dia of dias) {
+      resultado[dia] = {
+        fijos: [],
+        especiales: [],
+        habilitado: semana.dias_habilitados?.[dia] ?? false
+      };
+    }
+
+    // Mapear platos fijos
+    for (const item of dailyRes.rows) {
+      const fecha = new Date(item.date);
+      const diaNombre = fecha.toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].fijos.push(item);
+      }
+    }
+
+    // Mapear platos especiales
+    for (const item of specialRes.rows) {
+      const fecha = new Date(item.date);
+      const diaNombre = fecha.toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].especiales.push(item);
+      }
+    }
+
+    res.json(resultado);
+  } catch (err) {
+    console.error('❌ Error al armar menú agrupado:', err);
+    res.status(500).json({ error: 'Error interno al armar menú agrupado' });
+  }
+};

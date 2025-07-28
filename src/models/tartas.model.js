@@ -6,26 +6,51 @@ export const getAllTartas = async () => {
   return result.rows;
 };
 
-export const createTarta = async ({ key, nombre, descripcion, img, precio }) => {
-  if (!key || !nombre) {
-    throw new Error('Key y nombre son obligatorios');
+export const createTarta = async ({ key, nombre, descripcion = '', img = '', precio = 0 }) => {
+  if (!key?.trim() || !nombre?.trim()) {
+    throw new Error('Los campos "key" y "nombre" son obligatorios');
   }
 
   const result = await pool.query(
-    'INSERT INTO tartas ("key", nombre, descripcion, img, precio) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    `
+    INSERT INTO tartas ("key", nombre, descripcion, img, precio)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT ("key")
+    DO UPDATE SET 
+      nombre = EXCLUDED.nombre,
+      descripcion = EXCLUDED.descripcion,
+      img = EXCLUDED.img,
+      precio = EXCLUDED.precio
+    RETURNING *
+    `,
     [key, nombre, descripcion, img, precio]
   );
+
   return result.rows[0];
 };
 
-export const updateTarta = async (id, { nombre, key, descripcion, img, precio }) => {
-  const result = await pool.query(
-    `UPDATE tartas
-     SET nombre = $1, "key" = $2, descripcion = $3, img = $4, precio = $5
-     WHERE id = $6
-     RETURNING *`,
-    [nombre, key, descripcion, img, precio, id]
-  );
+
+export const updateTarta = async (id, data) => {
+  const campos = [];
+  const valores = [];
+  let idx = 1;
+
+  for (const clave of ['nombre', 'descripcion', 'precio', 'img', 'key']) {
+    if (clave in data) {
+      campos.push(`${clave} = $${idx}`);
+      valores.push(data[clave]);
+      idx++;
+    }
+  }
+
+  if (campos.length === 0) throw new Error('No hay campos para actualizar');
+
+  valores.push(id); // último valor es el ID
+  const query = `
+    UPDATE tartas SET ${campos.join(', ')} WHERE id = $${idx} RETURNING *
+  `;
+
+  const result = await pool.query(query, valores);
   return result.rows[0];
 };
 

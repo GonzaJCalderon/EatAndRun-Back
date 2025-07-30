@@ -108,7 +108,13 @@ export const getAllOrders = async (req, res) => {
     const pedidos = await getPedidosConItems(); // sin filtro
     res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener todos los pedidos', details: err.message });
+    console.error('❌ Error exacto al obtener pedidos:', err.stack); // 💥 log completo
+
+    res.status(500).json({
+      error: 'Error al obtener todos los pedidos',
+      details: err.message,
+      hint: 'Revisá si la columna "fecha_dia" existe en la tabla order_items desde este entorno de conexión.'
+    });
   }
 };
 

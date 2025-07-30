@@ -9,6 +9,8 @@ import {
 } from '../models/dailyMenu.model.js';
 
 import { roleMap, roleReverseMap } from '../constants/roles.js';
+import dayjs from '../utils/dayjs.js'; // Asegurate que tenga extendido utc + timezone
+
 
 // 📥 Obtener menú del día según rol
 // 📥 Obtener TODO el menú del día (para cualquier rol)
@@ -337,8 +339,12 @@ export const getWeeklyMenuGrouped = async (req, res) => {
 
     // Mapear platos fijos
     for (const item of dailyRes.rows) {
-      const fecha = new Date(item.date);
-      const diaNombre = fecha.toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
+const diaNombre = dayjs(item.date)
+  .tz('America/Argentina/Buenos_Aires')
+  .locale('es')
+  .format('dddd')
+  .toLowerCase();
+
       if (resultado[diaNombre]) {
         resultado[diaNombre].fijos.push(item);
       }
@@ -346,12 +352,19 @@ export const getWeeklyMenuGrouped = async (req, res) => {
 
     // Mapear platos especiales
     for (const item of specialRes.rows) {
-      const fecha = new Date(item.date);
-      const diaNombre = fecha.toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
-      if (resultado[diaNombre]) {
-        resultado[diaNombre].especiales.push(item);
-      }
-    }
+  const diaNombre = dayjs(item.date)
+    .tz('America/Argentina/Buenos_Aires')
+    .locale('es')
+    .format('dddd')
+    .toLowerCase();
+
+  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre); // <-- Esto aparece en consola
+
+  if (resultado[diaNombre]) {
+    resultado[diaNombre].especiales.push(item);
+  }
+}
+
 
     res.json(resultado);
   } catch (err) {

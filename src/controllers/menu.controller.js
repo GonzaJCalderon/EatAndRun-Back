@@ -2,6 +2,8 @@ import { pool } from '../db/index.js';
 import { getLunesProximaSemana } from '../utils/date.utils.js';
 import { getOrCreateSemanaActual, actualizarSemanaCompletaService } from '../utils/getOrCreateSemanaActual.js';
 
+
+
 export const getSemanaActualController = async (req, res) => {
   try {
     const result = await pool.query(`

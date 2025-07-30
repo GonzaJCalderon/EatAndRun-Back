@@ -1,22 +1,15 @@
 import { pool } from '../db/index.js';
-import { getLunesProximaSemana } from '../utils/date.utils.js';
-
-
+import dayjs from '../utils/dayjs.js'; 
 
 export const getOrCreateSemanaActual = async () => {
-  const lunes = getLunesProximaSemana(); // Ej: 2025-08-05
-  lunes.setHours(0, 0, 0, 0);
+  // 📅 Obtener lunes siguiente en hora ARG
+  const lunes = dayjs().tz('America/Argentina/Buenos_Aires').startOf('week').add(8, 'day'); // lunes de la próxima semana
+  const viernes = lunes.add(4, 'day');
+  const cierre = viernes.hour(20).minute(0).second(0); // viernes a las 20:00hs
 
-  const viernes = new Date(lunes);
-  viernes.setDate(lunes.getDate() + 4); // viernes de esa semana
-  viernes.setHours(0, 0, 0, 0);
+  const lunesISO = lunes.format('YYYY-MM-DD');
 
-  const cierre = new Date(viernes);
-  cierre.setHours(20, 0, 0, 0); // Viernes 20:00hs
-
-  const lunesISO = lunes.toISOString().slice(0, 10);
-
-  // Verificar si ya existe una semana con ese lunes
+  // 🔍 Buscar si ya existe
   const existente = await pool.query(
     `SELECT * FROM menu_semana WHERE semana_inicio = $1`,
     [lunesISO]
@@ -25,7 +18,6 @@ export const getOrCreateSemanaActual = async () => {
   if (existente.rows.length > 0) {
     const semana = existente.rows[0];
 
-    // ✅ Si falta info, la completamos
     if (!semana.semana_fin || !semana.cierre || !semana.dias_habilitados) {
       const update = await pool.query(`
         UPDATE menu_semana
@@ -35,7 +27,7 @@ export const getOrCreateSemanaActual = async () => {
         WHERE id = $4
         RETURNING *
       `, [
-        viernes.toISOString().slice(0, 10),
+        viernes.format('YYYY-MM-DD'),
         cierre.toISOString(),
         {
           lunes: true,
@@ -50,32 +42,30 @@ export const getOrCreateSemanaActual = async () => {
       return update.rows[0];
     }
 
-    // Ya existe y está completa
-    return semana;
+    return semana; // ya existe
   }
 
-  // No existe: insertamos una nueva
-const insert = await pool.query(`
-  INSERT INTO menu_semana (semana_inicio, semana_fin, habilitado, cierre, dias_habilitados, inicio_toma_pedidos)
-  VALUES ($1, $2, true, $3, $4, $5)
-  RETURNING *
-`, [
-  lunes.toISOString().slice(0, 10),
-  viernes.toISOString().slice(0, 10),
-  cierre.toISOString(),
-  {
-    lunes: true,
-    martes: true,
-    miercoles: true,
-    jueves: true,
-    viernes: true
-  },
-  new Date().toISOString().slice(0, 10) // habilitar ya mismo la toma de pedidos
-]);
-
+  // 🆕 Insertar nueva semana
+  const insert = await pool.query(`
+    INSERT INTO menu_semana (semana_inicio, semana_fin, habilitado, cierre, dias_habilitados, inicio_toma_pedidos)
+    VALUES ($1, $2, true, $3, $4, $5)
+    RETURNING *
+  `, [
+    lunes.format('YYYY-MM-DD'),
+    viernes.format('YYYY-MM-DD'),
+    cierre.toISOString(),
+    {
+      lunes: true,
+      martes: true,
+      miercoles: true,
+      jueves: true,
+      viernes: true
+    },
+    dayjs().tz('America/Argentina/Buenos_Aires').format('YYYY-MM-DD') // toma de pedidos desde hoy
+  ]);
 
   return insert.rows[0];
-}; 
+};
 
 
 

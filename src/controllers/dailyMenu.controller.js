@@ -209,18 +209,19 @@ export const getSpecialMenuEmpresa = async (req, res) => {
 export const createOrUpdateSpecialMenu = async (req, res) => {
   try {
     const { name, description, price, date } = req.body;
+    const cleanDate = dayjs(date).format('YYYY-MM-DD'); // 🧼 quita la hora
+
     const role = 'empresa';
     const image_url = req.file?.path || null; // 👈 Guardar path si hay imagen
-
-    await pool.query(
-      `INSERT INTO special_company_menu (name, description, price, date, for_role, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (date, name) DO UPDATE SET
-         description = EXCLUDED.description,
-         price = EXCLUDED.price,
-         image_url = COALESCE(EXCLUDED.image_url, special_company_menu.image_url)`, // 👈 No pisa si no se envía nueva
-      [name, description, price, date, role, image_url]
-    );
+await pool.query(
+  `INSERT INTO special_company_menu (name, description, price, date, for_role, image_url)
+   VALUES ($1, $2, $3, $4, $5, $6)
+   ON CONFLICT (date, name) DO UPDATE SET
+     description = EXCLUDED.description,
+     price = EXCLUDED.price,
+     image_url = COALESCE(EXCLUDED.image_url, special_company_menu.image_url)`,
+  [name, description, price, cleanDate, role, image_url] // ✅ Usás cleanDate acá
+);
 
     res.status(201).json({ message: 'Menú especial actualizado correctamente' });
   } catch (error) {
@@ -321,10 +322,12 @@ export const getWeeklyMenuGrouped = async (req, res) => {
     `, [semana.semana_inicio, semana.semana_fin]);
 
     // Traer menú especial empresa
-    const specialRes = await pool.query(`
-      SELECT * FROM special_company_menu
-      WHERE date BETWEEN $1 AND $2
-    `, [semana.semana_inicio, semana.semana_fin]);
+  const specialRes = await pool.query(`
+  SELECT * FROM special_company_menu
+  WHERE date BETWEEN $1 AND $2
+    AND (for_role IS NULL OR for_role = 'empresa' OR for_role = 'general')
+`, [semana.semana_inicio, semana.semana_fin]);
+
 
     const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
     const resultado = {};

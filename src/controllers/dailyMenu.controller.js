@@ -343,7 +343,8 @@ export const getWeeklyMenuGrouped = async (req, res) => {
       resultado[dia] = {
         fijos: [],
         especiales: [],
-        habilitado: semana.dias_habilitados?.[dia] ?? false
+        habilitado: true // 🔓 siempre habilitado en la respuesta del backend
+
       };
     }
 

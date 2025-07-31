@@ -341,32 +341,41 @@ export const getWeeklyMenuGrouped = async (req, res) => {
     }
 
     // Mapear platos fijos
-    for (const item of dailyRes.rows) {
-const diaNombre = dayjs(item.date)
-  .tz('America/Argentina/Buenos_Aires')
-  .locale('es')
-  .format('dddd')
-  .toLowerCase();
-
-      if (resultado[diaNombre]) {
-        resultado[diaNombre].fijos.push(item);
-      }
-    }
-
-    // Mapear platos especiales
-    for (const item of specialRes.rows) {
+for (const item of specialRes.rows) {
   const diaNombre = dayjs(item.date)
     .tz('America/Argentina/Buenos_Aires')
     .locale('es')
     .format('dddd')
     .toLowerCase();
 
-  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre); // <-- Esto aparece en consola
+  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre); // 👈 REVISÁ la salida acá
 
   if (resultado[diaNombre]) {
     resultado[diaNombre].especiales.push(item);
+  } else {
+    console.warn(`❌ Día inválido o no mapeado: ${diaNombre}`);
   }
 }
+
+for (const item of specialRes.rows) {
+  console.log('🌍 LOCALE ACTUAL:', dayjs().locale());
+  console.log('🧪 DÍA de', item.date, '→', dayjs(item.date).tz('America/Argentina/Buenos_Aires').format('dddd'));
+
+  const diaNombre = dayjs(item.date)
+    .tz('America/Argentina/Buenos_Aires')
+    .locale('es')
+    .format('dddd')
+    .toLowerCase();
+
+  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre);
+
+  if (resultado[diaNombre]) {
+    resultado[diaNombre].especiales.push(item);
+  } else {
+    console.warn(`❌ Día inválido o no mapeado: ${diaNombre}`);
+  }
+}
+
 
 
     res.json(resultado);

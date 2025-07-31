@@ -10,6 +10,7 @@ import {
    asociarEmpleadoAEmpresa
 } from '../models/empresaUsers.model.js';
 import { getPedidosPorEmpresa } from '../models/order.model.js'; 
+
 // 🔍 Obtener info de la empresa actual del usuario logueado
 
 
@@ -151,7 +152,7 @@ export const getLinkInvitacionEmpresa = async (req, res) => {
     }
 
     // Devolvemos el link completo
-    const link = `https://eatandrun.shop/registro?empresa=${codigo_invitacion}`;
+    const link = `${process.env.FRONTEND_URL}/registro?empresa=${codigo_invitacion}`;
 
     res.json({
       link,

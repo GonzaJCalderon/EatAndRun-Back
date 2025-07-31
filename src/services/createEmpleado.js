@@ -1,3 +1,16 @@
+import { pool } from '../db/index.js';
+import { findUserByEmail, createUser } from '../models/user.model.js'; // 👈 ESTA LÍNEA FALTABA
+import { sendResetPasswordEmail, sendWelcomeEmail } from '../utils/mailer.js';
+import {
+  createEmpresaUser,
+  isUserInEmpresa,
+  removeEmpleado,
+  encontrarEmpresaPorCodigo, 
+  asociarEmpleadoAEmpresa
+} from '../models/empresaUsers.model.js';
+import bcrypt from 'bcryptjs';
+
+
 export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa_id }) => {
   let user = await findUserByEmail(email);
 

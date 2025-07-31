@@ -5,7 +5,7 @@ import { createUser, findUserByEmail } from '../models/user.model.js';
 import { pool } from '../db/index.js';
 import { createUserProfile } from '../models/userProfile.model.js';
 import { createEmpresa } from '../models/empresa.model.js';
-import { asociarEmpleadoAEmpresa, isUserInEmpresa } from '../models/empresaUsers.model.js';
+import { asociarEmpleadoAEmpresa, isUserInEmpresa, encontrarEmpresaPorCodigo } from '../models/empresaUsers.model.js';
 
 const roleMap = {
   1: 'usuario',

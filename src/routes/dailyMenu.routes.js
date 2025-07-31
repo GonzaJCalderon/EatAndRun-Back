@@ -10,7 +10,8 @@ import {
   getTodayDailyMenu,
   getSpecialMenuEmpresa,
   createOrUpdateSpecialMenu,
-  updateSpecialMenuEmpresa
+  updateSpecialMenuEmpresa,
+  getWeeklyMenuGrouped
 } from '../controllers/dailyMenu.controller.js';
 
 import { verifyToken } from '../middlewares/auth.middleware.js';
@@ -53,6 +54,9 @@ router.post(
   authorizeRoles('admin'),
   createDailyItemFromJson
 );
+
+// 📦 Obtener menú semanal agrupado por día (para frontend)
+router.get('/semanal', verifyToken, authorizeRoles('usuario', 'empresa', 'admin', 'delivery'), getWeeklyMenuGrouped);
 
 // 📅 Guardar menú semanal (unificado, sin distinción de usuario/empresa)
 router.put('/semanal', verifyToken, authorizeRoles('admin'), saveWeeklyMenu);

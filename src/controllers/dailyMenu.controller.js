@@ -301,7 +301,6 @@ function getFechaDeProximoDia(dia) {
 // ✅ GET menú agrupado por día: lunes a viernes
 export const getWeeklyMenuGrouped = async (req, res) => {
   try {
-    // Traer semana activa
     const semanaRes = await pool.query(`
       SELECT * FROM menu_semana
       WHERE habilitado = true
@@ -315,23 +314,31 @@ export const getWeeklyMenuGrouped = async (req, res) => {
 
     const semana = semanaRes.rows[0];
 
-    // Traer menú del día (platos diarios)
+    // 🔹 1. Obtener platos comunes
     const dailyRes = await pool.query(`
       SELECT * FROM daily_menu
       WHERE date BETWEEN $1 AND $2
     `, [semana.semana_inicio, semana.semana_fin]);
 
-    // Traer menú especial empresa
-  const specialRes = await pool.query(`
-  SELECT * FROM special_company_menu
-  WHERE date BETWEEN $1 AND $2
-    AND (for_role IS NULL OR for_role = 'empresa' OR for_role = 'general')
-`, [semana.semana_inicio, semana.semana_fin]);
-
+    // 🔹 2. Obtener especiales
+    const specialRes = await pool.query(`
+      SELECT * FROM special_company_menu
+      WHERE date BETWEEN $1 AND $2
+        AND (for_role IS NULL OR for_role = 'empresa' OR for_role = 'general')
+    `, [semana.semana_inicio, semana.semana_fin]);
 
     const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
-    const resultado = {};
+    const diasMap = {
+      0: 'domingo',
+      1: 'lunes',
+      2: 'martes',
+      3: 'miercoles',
+      4: 'jueves',
+      5: 'viernes',
+      6: 'sabado'
+    };
 
+    const resultado = {};
     for (const dia of dias) {
       resultado[dia] = {
         fijos: [],
@@ -340,45 +347,24 @@ export const getWeeklyMenuGrouped = async (req, res) => {
       };
     }
 
-    // Mapear platos fijos
-for (const item of specialRes.rows) {
-  const diaNombre = dayjs(item.date)
-    .tz('America/Argentina/Buenos_Aires')
-    .locale('es')
-    .format('dddd')
-    .toLowerCase();
+    // 🟡 Agregar comunes del daily_menu
+    for (const item of dailyRes.rows) {
+      const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires').day()];
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].especiales.push(item); // agregados como "especiales"
+      }
+    }
 
-  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre); // 👈 REVISÁ la salida acá
-
-  if (resultado[diaNombre]) {
-    resultado[diaNombre].especiales.push(item);
-  } else {
-    console.warn(`❌ Día inválido o no mapeado: ${diaNombre}`);
-  }
-}
-
-for (const item of specialRes.rows) {
-  console.log('🌍 LOCALE ACTUAL:', dayjs().locale());
-  console.log('🧪 DÍA de', item.date, '→', dayjs(item.date).tz('America/Argentina/Buenos_Aires').format('dddd'));
-
-  const diaNombre = dayjs(item.date)
-    .tz('America/Argentina/Buenos_Aires')
-    .locale('es')
-    .format('dddd')
-    .toLowerCase();
-
-  console.log('🧪 MENÚ ESPECIAL:', item.date, '→', diaNombre);
-
-  if (resultado[diaNombre]) {
-    resultado[diaNombre].especiales.push(item);
-  } else {
-    console.warn(`❌ Día inválido o no mapeado: ${diaNombre}`);
-  }
-}
-
-
+    // 🔵 Agregar especiales del menú especial
+    for (const item of specialRes.rows) {
+      const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires').day()];
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].especiales.push(item);
+      }
+    }
 
     res.json(resultado);
+
   } catch (err) {
     console.error('❌ Error al armar menú agrupado:', err);
     res.status(500).json({ error: 'Error interno al armar menú agrupado' });

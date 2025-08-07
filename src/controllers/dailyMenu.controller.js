@@ -350,7 +350,7 @@ export const getWeeklyMenuGrouped = async (req, res) => {
 
     // 🟡 Agregar comunes del daily_menu
     for (const item of dailyRes.rows) {
-      const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires').day()];
+const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).day()];
       if (resultado[diaNombre]) {
         resultado[diaNombre].especiales.push(item); // agregados como "especiales"
       }

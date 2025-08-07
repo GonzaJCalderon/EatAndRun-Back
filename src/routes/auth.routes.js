@@ -6,6 +6,7 @@ import {
   forgotPassword,
   resetPassword,
   changePassword,
+  verificarCodigoEmpresa
 } from '../controllers/auth.controller.js';
 import { verifyToken } from '../middlewares/auth.middleware.js';
 
@@ -21,5 +22,7 @@ router.post('/login', loginController);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.post('/change-password', verifyToken, changePassword);
+router.post('/verificar-codigo', verificarCodigoEmpresa);
+
 
 export default router;

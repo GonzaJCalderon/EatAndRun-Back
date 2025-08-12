@@ -1,62 +1,69 @@
-import bcrypt from 'bcrypt';
+// auth.service.js
+import bcrypt from 'bcryptjs';               // <--- usa bcryptjs en todos lados
 import jwt from 'jsonwebtoken';
 import { config } from '../../config/env.js';
-import { createUser, findUserByEmail } from '../models/user.model.js';
+import { createUser, findUserByEmail, updateUserBasicInfo } from '../models/user.model.js';
 import { pool } from '../db/index.js';
-import { createUserProfile } from '../models/userProfile.model.js';
-import { createEmpresa } from '../models/empresa.model.js';
-import { asociarEmpleadoAEmpresa, isUserInEmpresa, encontrarEmpresaPorCodigo } from '../models/empresaUsers.model.js';
+import { createUserProfile, updateUserProfile, getUserProfileById } from '../models/userProfile.model.js';
 
-const roleMap = {
-  1: 'usuario',
-  2: 'empresa',
-  3: 'delivery',
-  4: 'admin',
-  5: 'moderador'
-};
 
-// auth.service.js
-export const register = async (data) => {
-  const { name, apellido, email, password, role_id } = data;
+const roleMap = { 1:'usuario', 2:'empresa', 3:'delivery', 4:'admin', 5:'moderador' };
 
-  const existing = await findUserByEmail(email); // 🔍 ACÁ
+export const register = async ({ name, apellido, email, password, role_id }) => {
+  const emailNorm = String(email).trim().toLowerCase();
+
+  const existing = await findUserByEmail(emailNorm);
   if (existing) throw new Error('El email ya está registrado');
 
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-const user = await createUser({ name, apellido, email, password: hashedPassword, role_id });
-
-
+  const hash = await bcrypt.hash(password, 10);
+  const user = await createUser({
+    name,
+    apellido,
+    email: emailNorm,
+    password: hash,
+    role_id
+  });
   return user;
 };
 
-export const login = async (email, password) => {
-  const user = await findUserByEmail(email);
-  if (!user) throw new Error('Usuario no encontrado');
+export const login = async (email, plain) => {
+  const emailNorm = String(email ?? '').trim().toLowerCase();
+  const user = await findUserByEmail(emailNorm);
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) throw new Error('Contraseña incorrecta');
+  const invalid = new Error('Credenciales inválidas');
+  if (!user || !user.password) throw invalid;
 
-  // 🔁 Convertimos el role_id a string legible
-  const roleName = roleMap[user.role_id] || 'usuario';
+  const dbPwd    = String(user.password ?? '').trim();
+  const plainPwd = String(plain ?? '').trim();
 
-  const token = jwt.sign(
-    { id: user.id, role: roleName },
-    config.jwtSecret,
-    { expiresIn: '8h' }
-  );
+  const looksHashed = /^\$2[aby]\$\d{2}\$/.test(dbPwd);
+  let ok = false;
 
- return {
-  token,
-  user: {
-    id: user.id,
-    name: user.name,
-    apellido: user.last_name, // 👈 AGREGADO
-    email: user.email,
-    role: roleName
+  if (looksHashed) {
+    try { ok = await bcrypt.compare(plainPwd, dbPwd); } catch { ok = false; }
+  } else {
+    ok = dbPwd === plainPwd;
+    if (ok) {
+      const newHash = await bcrypt.hash(plainPwd, 10);
+      await pool.query('UPDATE users SET password = $1 WHERE id = $2', [newHash, user.id]);
+    }
   }
-};
 
+  if (!ok) throw invalid;
+
+  const roleName = roleMap[user.role_id] || 'usuario';
+  const token = jwt.sign({ id: user.id, role: roleName }, config.jwtSecret, { expiresIn: '8h' });
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      apellido: user.last_name,
+      email: user.email,
+      role: roleName
+    }
+  };
 };
 
 
@@ -65,73 +72,31 @@ export const getUserById = async (id) => {
   return res.rows[0];
 };
 
-
-
-
 export const completarPerfilFaltante = async ({
-  user,
-  telefono,
-  direccion_principal,
-  direccion_alternativa,
-  role,
-  empresa,
-  codigoInvitacion
+  user, telefono, direccion_principal, direccion_alternativa, role, empresa, codigoInvitacion, apellido
 }) => {
-  // 1. Crear perfil si no existe
-  const perfilRes = await pool.query('SELECT * FROM user_profiles WHERE user_id = $1', [user.id]);
+  const necesitaApellido = !user.last_name && apellido;
+  if (necesitaApellido) {
+    await updateUserBasicInfo({ user_id: user.id, name: user.name, apellido });
+  }
 
-  if (perfilRes.rows.length === 0) {
+
+  // 2) user_profiles crear/actualizar con direccion_alternativa
+  const perfil = await getUserProfileById(user.id);
+
+  if (!perfil || !perfil.telefono) {
     await createUserProfile({
       user_id: user.id,
-      telefono,
-      direccion_principal,
-      direccion_alternativa
+      telefono: telefono || null,
+      direccion_principal: direccion_principal || null,
+      direccion_alternativa: direccion_alternativa || null,
     });
-    console.log(`📘 Perfil creado para user_id=${user.id}`);
   } else {
-    console.log(`ℹ️ Perfil ya existente para user_id=${user.id}`);
-  }
-
-  // 2. Si es empresa, y no existe aún
-  if (role === 'empresa' && empresa?.razonSocial && empresa?.cuit) {
-    const empresaRes = await pool.query('SELECT * FROM empresas WHERE user_id = $1', [user.id]);
-
-    if (empresaRes.rows.length === 0) {
-      await createEmpresa({
-        user_id: user.id,
-        razon_social: empresa.razonSocial,
-        cuit: empresa.cuit
-      });
-      console.log(`🏢 Empresa creada para user_id=${user.id}`);
-    } else {
-      console.log(`ℹ️ Empresa ya registrada para user_id=${user.id}`);
-    }
-  }
-
-  // 3. Si tiene código de invitación, lo asociamos a empresa
-  if (codigoInvitacion) {
-    const empresaEncontrada = await encontrarEmpresaPorCodigo(codigoInvitacion);
-
-    if (!empresaEncontrada) throw new Error('Código de invitación inválido');
-
-    if (
-      empresaEncontrada.codigo_expira &&
-      new Date(empresaEncontrada.codigo_expira) < new Date()
-    ) {
-      throw new Error('El código de invitación ha expirado');
-    }
-
-    const yaAsociado = await isUserInEmpresa(empresaEncontrada.id, user.id);
-
-    if (!yaAsociado) {
-      await asociarEmpleadoAEmpresa({
-        empresa_id: empresaEncontrada.id,
-        user_id: user.id,
-        rol: 'empleado'
-      });
-      console.log(`✅ Asociado como empleado a empresa ID ${empresaEncontrada.id}`);
-    } else {
-      console.log(`ℹ️ Usuario ya estaba asociado a empresa ID ${empresaEncontrada.id}`);
-    }
+    await updateUserProfile({
+      user_id: user.id,
+      telefono: telefono ?? perfil.telefono,
+      direccion_principal: direccion_principal ?? perfil.direccion_principal,
+      direccion_alternativa: direccion_alternativa ?? perfil.direccion_alternativa,
+    });
   }
 };

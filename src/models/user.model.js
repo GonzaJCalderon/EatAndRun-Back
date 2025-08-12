@@ -21,45 +21,48 @@ export const createUser = async ({ name, apellido, email, password, role_id }) =
 };
 
 
-
 export const findUserByEmail = async (email) => {
+  const emailNorm = String(email ?? '').trim().toLowerCase();
   const res = await pool.query(`
     SELECT u.*, p.user_id IS NOT NULL AS tiene_perfil
     FROM users u
     LEFT JOIN user_profiles p ON u.id = p.user_id
     WHERE LOWER(u.email) = LOWER($1)
-  `, [email]);
-
-  return res.rows[0]; // 👈 incluye si tiene o no perfil
+    LIMIT 1
+  `, [emailNorm]);
+  return res.rows[0];
 };
+
 
 
 export const getAllUsers = async () => {
   const result = await pool.query(`
-    SELECT 
-      u.id, 
-      u.name, 
-      u.email, 
-      u.role_id,
-      up.apellido, -- 👈 AÑADILO
-      up.telefono,
-      up.direccion_principal,
-      up.direccion_secundaria
-    FROM users u
-    LEFT JOIN user_profiles up ON u.id = up.user_id
-    ORDER BY u.id ASC
-  `);
+   SELECT 
+  u.id, 
+  u.name, 
+  u.last_name AS apellido,        -- ✅
+  u.email, 
+  u.role_id,
+  up.telefono,
+  up.direccion_principal,
+  up.direccion_alternativa,       -- ✅
+  up.direccion_alternativa AS direccion_secundaria -- compat
+FROM users u
+LEFT JOIN user_profiles up ON u.id = up.user_id
+ORDER BY u.id ASC;
 
-  return result.rows.map(user => ({
-    id: user.id,
-    nombre: user.name,
-    apellido: user.apellido || "—", // 👈 NUEVO
-    email: user.email,
-    rol: roleMap[user.role_id] || "usuario",
-    telefono: user.telefono,
-    direccion_principal: user.direccion_principal,
-    direccion_secundaria: user.direccion_secundaria
-  }));
+  `);
+return result.rows.map(user => ({
+  id: user.id,
+  nombre: user.name,
+  apellido: user.apellido || "—",
+  email: user.email,
+  rol: roleMap[user.role_id] || "usuario",
+  telefono: user.telefono,
+  direccion_principal: user.direccion_principal,
+  direccion_alternativa: user.direccion_alternativa || user.direccion_secundaria || null
+}));
+
 };
 
 

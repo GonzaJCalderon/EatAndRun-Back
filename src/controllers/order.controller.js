@@ -12,7 +12,15 @@ import {
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
 import { getConfig } from '../models/config.model.js';
+import dayjs from 'dayjs';
+import 'dayjs/locale/es.js';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.locale('es');
 
+const TZ = 'America/Argentina/Buenos_Aires';
 
 
 
@@ -191,44 +199,42 @@ function calcularFechaEntregaDesdeDia(diaTexto, fechaEntrega) {
 
 // Obtener todos los pedidos (admin/moderador)
 
+
+
 export const getAllOrdersController = async (req, res) => {
   try {
-  const result = await pool.query(`
-  SELECT 
-    o.*,
-    o.tipo_menu,
-    u.name AS usuario_nombre,
-    up.apellido AS usuario_apellido,
-    u.email,
-    up.telefono,
-    up.direccion_principal,
-    json_agg(json_build_object(
-      'item_type', oi.item_type,
-      'item_id', oi.item_id,
-      'item_name', oi.item_name,
-      'quantity', oi.quantity,
-      'dia', oi.dia
-    )) AS items
-  FROM orders o
-  JOIN users u ON o.user_id = u.id
-  LEFT JOIN user_profiles up ON u.id = up.user_id
-  LEFT JOIN order_items oi ON oi.order_id = o.id
-  GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal
-  ORDER BY o.created_at DESC
-`);
-
+    const result = await pool.query(`
+      SELECT 
+        o.*,
+        o.tipo_menu,
+        u.name AS usuario_nombre,
+        COALESCE(up.apellido, u.last_name) AS usuario_apellido, -- 👈 acá
+        u.email,
+        up.telefono,
+        up.direccion_principal,
+        json_agg(json_build_object(
+          'item_type', oi.item_type,
+          'item_id', oi.item_id,
+          'item_name', oi.item_name,
+          'quantity', oi.quantity,
+          'dia', oi.dia
+        )) AS items
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      LEFT JOIN user_profiles up ON u.id = up.user_id
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal, u.last_name
+      ORDER BY o.created_at DESC
+    `);
 
     const pedidos = result.rows.map((row) => {
-      const pedido = {
-        diarios: {},
-        extras: {},
-        tartas: {}
-      };
+      const pedido = { diarios: {}, extras: {}, tartas: {} };
 
-      row.items.forEach((item) => {
+      (row.items || []).forEach((item) => {
         const tipo = item.item_type;
         const nombre = item.item_name;
         if (!nombre) return;
+
         const dia = item.dia || 'sin_dia';
         const cantidad = Number(item.quantity);
         if (isNaN(cantidad)) return;
@@ -247,17 +253,18 @@ export const getAllOrdersController = async (req, res) => {
       return {
         id: row.id,
         tipo_menu: row.tipo_menu,
-usuario: {
-  nombre: row.usuario_nombre,
-  apellido: row.usuario_apellido, // 👈 asegurate que la uses
-  email: row.email,
-  telefono: row.telefono,
-  direccion: row.direccion_principal,
-},
-
-
+        usuario: {
+          nombre: row.usuario_nombre,
+          apellido: row.usuario_apellido || '', // 👈 ahora siempre llega
+          email: row.email,
+          telefono: row.telefono,
+          direccion: row.direccion_principal,
+        },
         estado: row.status,
         fecha: row.fecha_entrega,
+        fecha_legible: row.fecha_entrega 
+          ? dayjs(row.fecha_entrega).tz(TZ).format('dddd DD/MM/YYYY') 
+          : null, // 👈 fecha bonita
         observaciones: row.observaciones,
         comprobanteUrl: row.comprobante_url,
         comprobanteNombre: row.comprobante_nombre,
@@ -271,7 +278,6 @@ usuario: {
     res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
-
 
 
 

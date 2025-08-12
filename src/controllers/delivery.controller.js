@@ -1,3 +1,5 @@
+// controllers/order.controller.js
+
 import { pool } from '../db/index.js';
 import {
   assignOrderToDelivery,
@@ -103,20 +105,19 @@ export const selfAssignOrder = async (req, res) => {
   }
 };
 
+
+// Obtener todos los pedidos (admin/moderador)
 export const getAllOrders = async (req, res) => {
   try {
-    const pedidos = await getPedidosConItems(); // sin filtro
+    // ✅ usa la función que ya resuelve nombres y fechas por día
+    const pedidos = await getPedidosConItems(); 
     res.json(pedidos);
   } catch (err) {
-    console.error('❌ Error exacto al obtener pedidos:', err.stack); // 💥 log completo
-
-    res.status(500).json({
-      error: 'Error al obtener todos los pedidos',
-      details: err.message,
-      hint: 'Revisá si la columna "fecha_dia" existe en la tabla order_items desde este entorno de conexión.'
-    });
+    console.error('❌ Error al obtener pedidos completos:', err);
+    res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
+
 
 
 export const updateDeliveryOrderStatus = async (req, res) => {

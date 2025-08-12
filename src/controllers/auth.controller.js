@@ -13,7 +13,6 @@ import { encontrarEmpresaPorCodigo, isUserInEmpresa, asociarEmpleadoAEmpresa } f
 import { findUserByEmail } from '../models/user.model.js';
 
 
-
 export const registerController = async (req, res) => {
   try {
     const {
@@ -29,20 +28,9 @@ export const registerController = async (req, res) => {
       codigoInvitacion
     } = req.body;
 
-    // 🧭 Mapeo de roles
-    const roleMap = {
-      usuario: 1,
-      empresa: 2,
-      delivery: 3,
-      admin: 4,
-      moderador: 5,
-      empleado: 6
-    };
-
-    // 🛑 Validación de rol base
+    const roleMap = { usuario: 1, empresa: 2, delivery: 3, admin: 4, moderador: 5, empleado: 6 };
     let role_id = roleMap[role] || roleMap.usuario;
 
-    // 🔐 Si viene por invitación, el rol debe ser "empleado"
     if (codigoInvitacion) {
       const empleadoRole = await pool.query(`SELECT id FROM roles WHERE name = 'empleado'`);
       if (!empleadoRole.rowCount) {
@@ -51,23 +39,18 @@ export const registerController = async (req, res) => {
       role_id = empleadoRole.rows[0].id;
     }
 
-    // 🔍 Validar existencia previa
+    // Evitar duplicados (solo con perfil completo se bloquea)
     const existing = await findUserByEmail(email);
     let user;
-
     if (existing) {
       if (existing.tiene_perfil) {
-        return res.status(400).json({ error: 'El email ya está registrado' });
+        return res.status(409).json({ error: 'El email ya está registrado' });
       }
-
-      user = existing; // continuar con el user incompleto
-
+      user = existing;
     } else {
-      // ✅ Crear nuevo usuario
       user = await register({ name, apellido, email, password, role_id });
     }
 
-    // 🧩 Completar perfil básico
     await completarPerfilFaltante({
       user,
       telefono,
@@ -75,76 +58,60 @@ export const registerController = async (req, res) => {
       direccion_alternativa,
       role,
       empresa,
-      codigoInvitacion
+      codigoInvitacion,
+      apellido
     });
 
-    if (codigoInvitacion) {
-  const empresa = await encontrarEmpresaPorCodigo(codigoInvitacion);
-
-  if (!empresa) {
-    return res.status(400).json({ error: 'Código de invitación inválido' });
-  }
-
-  if (empresa.codigo_expira && new Date(empresa.codigo_expira) < new Date()) {
-    return res.status(400).json({ error: 'El código de invitación ha expirado' });
-  }
-
-  const yaAsociado = await isUserInEmpresa(empresa.id, user.id);
-  if (!yaAsociado) {
-    await asociarEmpleadoAEmpresa({
-      empresa_id: empresa.id,
-      user_id: user.id,
-      rol: 'empleado'
-    });
-  }
-}
-
-
-    // 🏢 Si es empresa → crear empresa asociada
     if (role === 'empresa') {
       const nuevaEmpresa = await createEmpresa({
         user_id: user.id,
         razon_social: empresa?.razonSocial || `${name} ${apellido}`,
         cuit: empresa?.cuit || '00000000000'
       });
-
-      await generarCodigoInvitacion(nuevaEmpresa.id);
+      // si tienes generador de código de invitación, llámalo aquí (sin await crítico si quieres)
+      // await generarCodigoInvitacion(nuevaEmpresa.id);
     }
 
-    // 🤝 Si viene con código de invitación → asociar como empleado
     if (codigoInvitacion) {
       const empresaRes = await pool.query(
         `SELECT id, codigo_expira FROM empresas WHERE codigo_invitacion = $1`,
         [codigoInvitacion]
       );
-
       if (!empresaRes.rowCount) {
         return res.status(400).json({ error: 'Código de invitación inválido' });
       }
-
-      const empresa = empresaRes.rows[0];
-
-      if (empresa.codigo_expira && new Date(empresa.codigo_expira) < new Date()) {
+      const empresaRow = empresaRes.rows[0];
+      if (empresaRow.codigo_expira && new Date(empresaRow.codigo_expira) < new Date()) {
         return res.status(400).json({ error: 'El código de invitación ha expirado' });
       }
-
-      // Asociar en empresa_users si no existe
       await pool.query(
         `INSERT INTO empresa_users (empresa_id, user_id, rol)
          VALUES ($1, $2, 'empleado')
          ON CONFLICT (empresa_id, user_id) DO NOTHING`,
-        [empresa.id, user.id]
+        [empresaRow.id, user.id]
       );
     }
 
-    // 📬 Email de bienvenida
-    await sendWelcomeEmail(email, name);
+    // -----> NO BLOQUEANTE: mandamos el mail sin romper el flujo
+    let email_enviado = true;
+    sendWelcomeEmail(email, name).catch(err => {
+      email_enviado = false;
+      console.error('✉️  Error enviando email de bienvenida:', err?.message || err);
+    });
 
-    res.status(201).json({ message: 'Usuario creado correctamente', user });
+    return res.status(201).json({
+      message: 'Usuario creado correctamente',
+      user,
+      email_enviado
+    });
 
   } catch (err) {
-    console.error('❌ Error en registerController:', err);
-    res.status(400).json({ error: err.message });
+    // Usa códigos acordes: 400 solo para validaciones, 409 conflicto, 500 otros
+    const msg = err?.message || 'Error inesperado';
+    const isValidation = /email|contraseña|código/i.test(msg);
+    const status = msg.includes('registrado') ? 409 : (isValidation ? 400 : 500);
+    console.error('❌ Error en registerController:', msg);
+    return res.status(status).json({ error: msg });
   }
 };
 
@@ -153,16 +120,16 @@ export const registerController = async (req, res) => {
 // ✅ LOGIN DE USUARIO
 export const loginController = async (req, res) => {
   try {
+    console.log('login body =>', req.body); // <- debe mostrar { email, password }
     const { email, password } = req.body;
-
     const result = await login(email, password);
-
     res.json(result);
   } catch (err) {
     console.error('❌ Error en loginController:', err);
     res.status(401).json({ error: err.message });
   }
 };
+
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;

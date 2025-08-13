@@ -77,6 +77,15 @@ app.get('/', (req, res) => {
     <p>✔️ Backend listo para recibir peticiones</p>
   `);
 });
+app.get('/debug-tz', (req, res) => {
+  const now = new Date();
+  res.json({
+    date: now.toString(),
+    iso: now.toISOString(),
+    tzOffset: now.getTimezoneOffset(),
+  });
+});
+
 
 // ❌ Ruta 404 para todo lo demás
 app.use((req, res) => {

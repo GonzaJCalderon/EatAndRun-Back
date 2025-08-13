@@ -1,13 +1,11 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
-import isBetween from 'dayjs/plugin/isBetween.js'; // 👈 necesario si usás .isBetween
-import 'dayjs/locale/es.js'; // 👈 importa el idioma español
+import 'dayjs/locale/es.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-dayjs.extend(isBetween);
-
-dayjs.locale('es'); // 👈 esto aplica el idioma globalmente
+dayjs.locale('es');
+dayjs.tz.setDefault('America/Argentina/Buenos_Aires');
 
 export default dayjs;

@@ -5,10 +5,23 @@ import {
   getAllOrders,
   updateOrderStatus,
   getOrderStatusHistory,
-  saveOrderComprobante
+  saveOrderComprobante,
+ getPedidoConItemsById, 
+ getPedidosConItems 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
+import { getConfig } from '../models/config.model.js';
+import dayjs from 'dayjs';
+import 'dayjs/locale/es.js';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.locale('es');
+
+const TZ = 'America/Argentina/Buenos_Aires';
+
 
 
 
@@ -38,12 +51,12 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 };
 
 
-
 export const createOrderController = async (req, res) => {
-  const { items, total, observaciones, metodoPago, fecha_entrega } = req.body;
+  const { items, observaciones, metodoPago, fecha_entrega } = req.body;
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
 
+  // 🛡️ Validaciones básicas
   if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
   if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
 
@@ -63,14 +76,78 @@ export const createOrderController = async (req, res) => {
   }
 
   try {
-const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
-    const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+    // 🗓️ Validar semana activa
+    const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
+    const result = await pool.query(
+      'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
+      [lunesSemana]
+    );
     const semana = result.rows[0];
+
     if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
     if (semana.cierre && new Date(semana.cierre) < new Date()) {
       return res.status(400).json({ error: '⏰ El plazo ya cerró' });
     }
 
+    // ✅ Obtener precios actualizados
+    const precios = await getConfig('precios');
+    if (!precios) return res.status(500).json({ error: 'No se pudo obtener configuración de precios' });
+
+    // 💸 Calcular total
+    let total = 0;
+    let totalPlatos = 0;
+    const diasConPlato = new Set();
+
+    for (const item of items) {
+      const cantidad = parseInt(item.quantity) || 0;
+
+      switch (item.item_type) {
+        case 'daily':
+        case 'fijo':
+          totalPlatos += cantidad;
+          total += cantidad * precios.plato;
+          diasConPlato.add(item.dia);
+          break;
+
+        case 'extra':
+          const precioExtra = {
+            1: precios.postre,
+            2: precios.ensalada,
+            3: precios.proteina
+          }[item.item_id];
+
+          if (precioExtra) {
+            total += cantidad * precioExtra;
+          }
+          break;
+
+       case 'tarta': {
+  const tartaRes = await pool.query('SELECT precio FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1', [item.item_id]);
+  const tarta = tartaRes.rows[0];
+  if (!tarta) throw new Error(`Tarta '${item.item_id}' no encontrada`);
+
+  total += cantidad * tarta.precio;
+  break;
+}
+
+
+        case 'skip':
+          break;
+
+        default:
+          console.warn('⚠️ Tipo de item desconocido:', item.item_type);
+      }
+    }
+
+    // 🚚 Sumar envío por día con plato
+    total += diasConPlato.size * precios.envio;
+
+    // 🎉 Descuento si supera umbral
+    if (totalPlatos >= precios.umbral_descuento) {
+      total -= totalPlatos * precios.descuento_por_plato;
+    }
+
+    // 🧾 Crear pedido
     const order = await createOrder(userId, items, total, {
       fechaEntrega: fecha_entrega,
       observaciones,
@@ -92,13 +169,14 @@ const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
 
 
 
+
 // Obtener pedidos del usuario actual
 export const getUserOrdersController = async (req, res) => {
   try {
-    const orders = await getOrdersByUser(req.user.id);
-    res.json(orders);
+    const pedidos = await getPedidosConItems('WHERE o.user_id = $1', [req.user.id]);
+    res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener pedidos del usuario' });
+    res.status(500).json({ error: 'Error al obtener pedidos del usuario', details: err.message });
   }
 };
 
@@ -121,44 +199,42 @@ function calcularFechaEntregaDesdeDia(diaTexto, fechaEntrega) {
 
 // Obtener todos los pedidos (admin/moderador)
 
+
+
 export const getAllOrdersController = async (req, res) => {
   try {
-  const result = await pool.query(`
-  SELECT 
-    o.*,
-    o.tipo_menu,
-    u.name AS usuario_nombre,
-    up.apellido AS usuario_apellido,
-    u.email,
-    up.telefono,
-    up.direccion_principal,
-    json_agg(json_build_object(
-      'item_type', oi.item_type,
-      'item_id', oi.item_id,
-      'item_name', oi.item_name,
-      'quantity', oi.quantity,
-      'dia', oi.dia
-    )) AS items
-  FROM orders o
-  JOIN users u ON o.user_id = u.id
-  LEFT JOIN user_profiles up ON u.id = up.user_id
-  LEFT JOIN order_items oi ON oi.order_id = o.id
-  GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal
-  ORDER BY o.created_at DESC
-`);
-
+    const result = await pool.query(`
+      SELECT 
+        o.*,
+        o.tipo_menu,
+        u.name AS usuario_nombre,
+        COALESCE(up.apellido, u.last_name) AS usuario_apellido, -- 👈 acá
+        u.email,
+        up.telefono,
+        up.direccion_principal,
+        json_agg(json_build_object(
+          'item_type', oi.item_type,
+          'item_id', oi.item_id,
+          'item_name', oi.item_name,
+          'quantity', oi.quantity,
+          'dia', oi.dia
+        )) AS items
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      LEFT JOIN user_profiles up ON u.id = up.user_id
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal, u.last_name
+      ORDER BY o.created_at DESC
+    `);
 
     const pedidos = result.rows.map((row) => {
-      const pedido = {
-        diarios: {},
-        extras: {},
-        tartas: {}
-      };
+      const pedido = { diarios: {}, extras: {}, tartas: {} };
 
-      row.items.forEach((item) => {
+      (row.items || []).forEach((item) => {
         const tipo = item.item_type;
         const nombre = item.item_name;
         if (!nombre) return;
+
         const dia = item.dia || 'sin_dia';
         const cantidad = Number(item.quantity);
         if (isNaN(cantidad)) return;
@@ -177,17 +253,18 @@ export const getAllOrdersController = async (req, res) => {
       return {
         id: row.id,
         tipo_menu: row.tipo_menu,
-usuario: {
-  nombre: row.usuario_nombre,
-  apellido: row.usuario_apellido, // 👈 asegurate que la uses
-  email: row.email,
-  telefono: row.telefono,
-  direccion: row.direccion_principal,
-},
-
-
+        usuario: {
+          nombre: row.usuario_nombre,
+          apellido: row.usuario_apellido || '', // 👈 ahora siempre llega
+          email: row.email,
+          telefono: row.telefono,
+          direccion: row.direccion_principal,
+        },
         estado: row.status,
         fecha: row.fecha_entrega,
+        fecha_legible: row.fecha_entrega 
+          ? dayjs(row.fecha_entrega).tz(TZ).format('dddd DD/MM/YYYY') 
+          : null, // 👈 fecha bonita
         observaciones: row.observaciones,
         comprobanteUrl: row.comprobante_url,
         comprobanteNombre: row.comprobante_nombre,
@@ -201,7 +278,6 @@ usuario: {
     res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
-
 
 
 
@@ -299,28 +375,24 @@ export const createOrderWithUploadController = async (req, res) => {
 
 
 
+
 export const getOrderByIdController = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(`
-      SELECT o.*, u.name AS usuario_nombre, u.email, up.telefono, up.direccion_principal
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      WHERE o.id = $1
-    `, [id]);
+    const pedido = await getPedidoConItemsById(id);
 
-    if (result.rows.length === 0) {
+    if (!pedido) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    res.json(pedido);
   } catch (err) {
     console.error('❌ Error al obtener pedido:', err);
-    res.status(500).json({ error: 'Error al obtener pedido' });
+    res.status(500).json({ error: 'Error al obtener pedido', details: err.message });
   }
 };
+
 
 
 export const updatePedidoFields = async (req, res) => {
@@ -384,3 +456,64 @@ export const updateOrderItemsController = async (req, res) => {
     client.release();
   }
 };
+
+
+
+ const calcularTotalPedido = async (items) => {
+  const precios = await getConfig('precios');
+  if (!precios) throw new Error('❌ No hay configuración de precios');
+
+  let total = 0;
+  let totalPlatos = 0;
+  let diasConPlato = new Set();
+
+  for (const item of items) {
+    const cantidad = parseInt(item.quantity) || 0;
+
+    switch (item.item_type) {
+      case 'daily':
+      case 'fijo':
+        totalPlatos += cantidad;
+        total += cantidad * precios.plato;
+        diasConPlato.add(item.dia);
+        break;
+
+      case 'extra':
+        // el precio debe venir del ID o hardcodearlo (opcional)
+        const precioExtra = {
+          1: precios.postre,
+          2: precios.ensalada,
+          3: precios.proteina
+        }[item.item_id];
+
+        if (precioExtra) {
+          total += cantidad * precioExtra;
+        }
+        break;
+
+      case 'tarta':
+        total += cantidad * precios.tarta;
+        break;
+
+      case 'skip':
+        // no suma nada
+        break;
+
+      default:
+        console.warn('⚠️ Tipo de item desconocido:', item);
+    }
+  }
+
+  // Sumar envío por cada día con plato
+  total += diasConPlato.size * precios.envio;
+
+  // Descuento si supera el umbral
+  if (totalPlatos >= precios.umbral_descuento) {
+    total -= totalPlatos * precios.descuento_por_plato;
+  }
+
+  return total;
+};
+
+
+

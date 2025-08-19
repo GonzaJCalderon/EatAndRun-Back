@@ -21,7 +21,8 @@ export const toDateOnly = (s) => parseDateOnlyInTZ(s).format('YYYY-MM-DD');
 
 // ✅ ISO con Z → date-only (sin mover el día)
 // ⚠️ ANTES usabas: dayjs(s).tz(TZ) -> convierte y puede retroceder un día
-const parseDateOnlyInTZ = (s) => dayjs.tz(s, TZ); // ✅ interpreta en AR sin conversión
+const parseDateOnlyInTZ = (s) => dayjs.utc(s); // ✅ no convierte la fecha
+
 
 export const mondayOf  = (s) => parseDateOnlyInTZ(s).startOf('isoWeek');
 export const fridayOf  = (s) => mondayOf(s).add(4, 'day');

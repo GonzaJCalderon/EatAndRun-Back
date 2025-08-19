@@ -4,7 +4,7 @@ import 'dayjs/locale/es.js';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
-import isBetween from 'dayjs/plugin/isBetween.js'; // ✅
+import isBetween from 'dayjs/plugin/isBetween.js'; 
 
 
 dayjs.extend(utc);

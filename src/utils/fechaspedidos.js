@@ -1,5 +1,6 @@
 // utils/fechasPedido.js
-import dayjs from 'dayjs';
+import dayjs from './tiempo.js'; // o desde la ruta donde tengas tu configuración centralizada
+
 
 const mapDia = {
   lunes: 1, martes: 2, miércoles: 3, miercoles: 3, jueves: 4, viernes: 5,

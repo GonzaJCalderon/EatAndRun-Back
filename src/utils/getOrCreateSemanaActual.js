@@ -81,7 +81,7 @@ export const actualizarSemanaCompletaService = async (fecha_inicio, fecha_fin, c
   const fi = /^\d{4}-\d{2}-\d{2}$/.test(fecha_inicio) ? fecha_inicio : isoToDateOnly(fecha_inicio);
   const ff = /^\d{4}-\d{2}-\d{2}$/.test(fecha_fin)    ? fecha_fin    : isoToDateOnly(fecha_fin);
   const ci = /^\d{4}-\d{2}-\d{2}$/.test(cierre)       ? cierre       : isoToDateOnly(cierre);
-
+console.log('Actualizando semana:', fi, ff, ci);
   // ¿existe por semana_inicio = fi?
   const existente = await pool.query(
     'SELECT id FROM menu_semana WHERE semana_inicio = $1::date',
@@ -89,6 +89,7 @@ export const actualizarSemanaCompletaService = async (fecha_inicio, fecha_fin, c
   );
 
   if (existente.rows.length > 0) {
+    console.log('Semana ya existe, actualizando:', existente.rows[0].id);
     return pool.query(
       `
       UPDATE menu_semana

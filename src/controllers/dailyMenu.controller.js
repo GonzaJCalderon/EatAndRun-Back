@@ -301,12 +301,23 @@ function getFechaDeProximoDia(dia) {
 // ✅ GET menú agrupado por día: lunes a viernes
 export const getWeeklyMenuGrouped = async (req, res) => {
   try {
-    const semanaRes = await pool.query(`
-      SELECT * FROM menu_semana
-      WHERE habilitado = true
-      ORDER BY semana_inicio DESC
-      LIMIT 1
-    `);
+   const hoy = dayjs().format('YYYY-MM-DD');
+
+const fechasRes = await pool.query(`
+  SELECT MIN(date) as min_date, MAX(date) as max_date FROM daily_menu
+`);
+const { min_date, max_date } = fechasRes.rows[0];
+
+const semanaRes = await pool.query(`
+  SELECT * FROM menu_semana
+  WHERE habilitado = true
+    AND semana_inicio <= $1
+    AND semana_fin >= $2
+  ORDER BY semana_inicio DESC
+  LIMIT 1
+`, [min_date, max_date]);
+
+
 
     if (semanaRes.rowCount === 0) {
       return res.status(404).json({ error: 'No hay semana habilitada' });
@@ -314,13 +325,11 @@ export const getWeeklyMenuGrouped = async (req, res) => {
 
     const semana = semanaRes.rows[0];
 
-    // 🔹 1. Obtener platos comunes
     const dailyRes = await pool.query(`
       SELECT * FROM daily_menu
       WHERE date BETWEEN $1 AND $2
     `, [semana.semana_inicio, semana.semana_fin]);
 
-    // 🔹 2. Obtener especiales
     const specialRes = await pool.query(`
       SELECT * FROM special_company_menu
       WHERE date BETWEEN $1 AND $2
@@ -343,24 +352,29 @@ export const getWeeklyMenuGrouped = async (req, res) => {
       resultado[dia] = {
         fijos: [],
         especiales: [],
-        habilitado: true // 🔓 siempre habilitado en la respuesta del backend
-
+        habilitado: true
       };
     }
 
-    // 🟡 Agregar comunes del daily_menu
     for (const item of dailyRes.rows) {
-const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).day()];
+      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const diaNombre = diasMap[dayjs(fechaLimpia).day()];
       if (resultado[diaNombre]) {
-        resultado[diaNombre].especiales.push(item); // agregados como "especiales"
+        resultado[diaNombre].especiales.push({
+          ...item,
+          date: fechaLimpia
+        });
       }
     }
 
-    // 🔵 Agregar especiales del menú especial
     for (const item of specialRes.rows) {
-      const diaNombre = diasMap[dayjs(item.date).tz('America/Argentina/Buenos_Aires').day()];
+      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const diaNombre = diasMap[dayjs(fechaLimpia).day()];
       if (resultado[diaNombre]) {
-        resultado[diaNombre].especiales.push(item);
+        resultado[diaNombre].especiales.push({
+          ...item,
+          date: fechaLimpia
+        });
       }
     }
 

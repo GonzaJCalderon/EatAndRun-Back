@@ -38,7 +38,8 @@ export function parsePedido(row) {
 
   (row.items || []).forEach((item) => {
     const tipo = item.item_type;
-    const nombre = item.item_name || item.item_id;
+const nombre = item.resolved_name || item.item_name || `ID:${item.item_id}` || 'Desconocido';
+
     const cantidad = item.quantity;
     const dia = item.dia;
 

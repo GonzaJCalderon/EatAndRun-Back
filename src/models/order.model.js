@@ -690,7 +690,7 @@ console.log('📍 DB actual:', debugDb.rows[0]);
       tipo_menu: pedido.tipo_menu || 'usuario'
     };
   });
-
+ 
   return pedidosConItems;
 };
 

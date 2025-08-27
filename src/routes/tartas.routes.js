@@ -3,16 +3,14 @@ import {
   listarTartas,
   crearTarta,
   eliminarTarta,
-  editarTartaPorKey 
+  editarTartaPorId  // Changed name
 } from '../controllers/tartas.controller.js';
 
 const router = express.Router();
 
 router.get('/', listarTartas);
 router.post('/', crearTarta);
-
 router.delete('/:id', eliminarTarta);
-router.put('/:key', editarTartaPorKey);
-
+router.put('/:id', editarTartaPorId); // Changed from /:key to /:id
 
 export default router;

@@ -9,24 +9,21 @@ import {
 } from '../models/dailyMenu.model.js';
 
 import { roleMap, roleReverseMap } from '../constants/roles.js';
+import dayjs from '../utils/dayjs.js'; // Asegurate que tenga extendido utc + timezone
+
 
 // 📥 Obtener menú del día según rol
+// 📥 Obtener TODO el menú del día (para cualquier rol)
 export const getDailyMenu = async (req, res) => {
-const roleName = req.user?.role; // ✅ ahora sí: "admin", "empresa", etc.
-
-
-  if (!roleName) {
-    return res.status(403).json({ error: 'Rol no autorizado para ver menú del día' });
-  }
-
   try {
-    const items = await getDailyMenuForRole(roleName === 'admin' ? 'usuario' : roleName);
-    res.json(items);
+    const result = await pool.query('SELECT * FROM daily_menu ORDER BY date DESC');
+    res.json(result.rows);
   } catch (err) {
     console.error('❌ Error al obtener menú del día:', err);
     res.status(500).json({ error: 'Error interno al obtener el menú del día' });
   }
 };
+
 
 // 🔓 Obtener todos los platos (solo admin)
 export const getAllDailyMenu = async (req, res) => {
@@ -123,9 +120,9 @@ export const createDailyItemFromJson = async (req, res) => {
   }
 };
 
-// 📆 Guardar menú semanal para usuario
-export const saveWeeklyUserMenu = async (req, res) => {
+export const saveWeeklyMenu = async (req, res) => {
   const { menu } = req.body;
+
   if (!menu || typeof menu !== 'object') {
     return res.status(400).json({ error: 'Formato inválido del menú' });
   }
@@ -133,6 +130,7 @@ export const saveWeeklyUserMenu = async (req, res) => {
   const diasValidos = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
   const errores = [];
   const resultados = [];
+  const yaInsertados = new Set(); // nombre+fecha para evitar duplicados
 
   try {
     for (const dia of diasValidos) {
@@ -146,15 +144,23 @@ export const saveWeeklyUserMenu = async (req, res) => {
           continue;
         }
 
+        const key = `${nombre}-${fecha}`;
+        if (yaInsertados.has(key)) {
+          errores.push({ dia, nombre, error: 'Duplicado en menú del mismo día' });
+          continue;
+        }
+
         const item = await createDailyMenuItem({
           name: nombre,
           description: descripcion || '',
           date: fecha,
-          for_role: 'usuario',
           image_url: img
         });
 
-        resultados.push(item);
+        if (item) {
+          resultados.push(item);
+          yaInsertados.add(key);
+        }
       }
     }
 
@@ -165,78 +171,19 @@ export const saveWeeklyUserMenu = async (req, res) => {
   }
 };
 
-// 📆 Guardar menú semanal para empresa
-export const saveWeeklyCompanyMenu = async (req, res) => {
-  const { menu } = req.body;
-  if (!menu || typeof menu !== 'object') {
-    return res.status(400).json({ error: 'Formato inválido del menú' });
-  }
 
-  const diasValidos = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
-  const errores = [];
-  const resultados = [];
-
-  try {
-    for (const dia of diasValidos) {
-      const platosDelDia = menu[dia] || [];
-      const fecha = getFechaDeProximoDia(dia);
-
-      for (const plato of platosDelDia) {
-        const { nombre, descripcion, img } = plato;
-        if (!nombre || !img) {
-          errores.push({ dia, nombre, error: 'Faltan campos requeridos' });
-          continue;
-        }
-
-        const item = await createDailyMenuItem({
-          name: nombre,
-          description: descripcion || '',
-          date: fecha,
-          for_role: 'empresa',
-          image_url: img
-        });
-
-        resultados.push(item);
-      }
-    }
-
-    res.json({ message: 'Menú empresa guardado', guardados: resultados.length, errores });
-  } catch (err) {
-    console.error('❌ Error al guardar el menú empresa:', err);
-    res.status(500).json({ error: 'Error interno', details: err.message });
-  }
-};
 
 // 🔍 Obtener menú del día actual según rol
 
 
 
 export const getTodayDailyMenu = async (req, res) => {
-  let rawRole = req.user?.role;
-
-  // Si el role ya es string (ej: 'delivery'), usalo directo
-  // Si es un número (ej: 3), lo convertimos con roleMap
-  const roleName = typeof rawRole === 'string'
-    ? rawRole
-    : roleMap[rawRole];
-
-  console.log('🧾 [Menu] Raw role:', rawRole, '→ Resolved:', roleName);
-
-  if (!roleName) {
-    return res.status(403).json({ error: 'Rol no autorizado' });
-  }
-
-  // delivery y admin ven menú de usuario
-  const effectiveRole = ['admin', 'delivery'].includes(roleName)
-    ? 'usuario'
-    : roleName;
-
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString('en-CA'); // ✅ CORREGIDO
 
   try {
     const result = await pool.query(
-      'SELECT * FROM daily_menu WHERE for_role = $1 AND date = $2 ORDER BY name ASC',
-      [effectiveRole, today]
+      'SELECT * FROM daily_menu WHERE date = $1 ORDER BY name ASC',
+      [today]
     );
 
     res.json(result.rows);
@@ -245,6 +192,7 @@ export const getTodayDailyMenu = async (req, res) => {
     res.status(500).json({ error: 'Error interno al obtener menú de hoy' });
   }
 };
+
 
 // ✅ Obtener menú especial empresa (para empresa/admin)
 export const getSpecialMenuEmpresa = async (req, res) => {
@@ -261,18 +209,19 @@ export const getSpecialMenuEmpresa = async (req, res) => {
 export const createOrUpdateSpecialMenu = async (req, res) => {
   try {
     const { name, description, price, date } = req.body;
+    const cleanDate = dayjs(date).format('YYYY-MM-DD'); // 🧼 quita la hora
+
     const role = 'empresa';
     const image_url = req.file?.path || null; // 👈 Guardar path si hay imagen
-
-    await pool.query(
-      `INSERT INTO special_company_menu (name, description, price, date, for_role, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (date, name) DO UPDATE SET
-         description = EXCLUDED.description,
-         price = EXCLUDED.price,
-         image_url = COALESCE(EXCLUDED.image_url, special_company_menu.image_url)`, // 👈 No pisa si no se envía nueva
-      [name, description, price, date, role, image_url]
-    );
+await pool.query(
+  `INSERT INTO special_company_menu (name, description, price, date, for_role, image_url)
+   VALUES ($1, $2, $3, $4, $5, $6)
+   ON CONFLICT (date, name) DO UPDATE SET
+     description = EXCLUDED.description,
+     price = EXCLUDED.price,
+     image_url = COALESCE(EXCLUDED.image_url, special_company_menu.image_url)`,
+  [name, description, price, cleanDate, role, image_url] // ✅ Usás cleanDate acá
+);
 
     res.status(201).json({ message: 'Menú especial actualizado correctamente' });
   } catch (error) {
@@ -334,8 +283,105 @@ function getFechaDeProximoDia(dia) {
   const diaActual = hoy.getDay(); // domingo = 0
   const diaObjetivo = diasMap[dia];
 
-  const diferencia = (diaObjetivo + 7 - diaActual) % 7 || 7;
+  if (diaObjetivo === undefined) {
+    throw new Error(`Día inválido: ${dia}`);
+  }
+
+  let diferencia = (diaObjetivo - diaActual + 7) % 7;
+
+  // ⚠️ Si hoy ya es ese día, devolvemos hoy mismo
+  if (diferencia === 0) diferencia = 0;
+
   const fechaObjetivo = new Date(hoy);
   fechaObjetivo.setDate(hoy.getDate() + diferencia);
   return fechaObjetivo.toISOString().split('T')[0];
 }
+
+
+// ✅ GET menú agrupado por día: lunes a viernes
+export const getWeeklyMenuGrouped = async (req, res) => {
+  try {
+   const hoy = dayjs().format('YYYY-MM-DD');
+
+const fechasRes = await pool.query(`
+  SELECT MIN(date) as min_date, MAX(date) as max_date FROM daily_menu
+`);
+const { min_date, max_date } = fechasRes.rows[0];
+
+const semanaRes = await pool.query(`
+  SELECT * FROM menu_semana
+  WHERE habilitado = true
+    AND semana_inicio <= $1
+    AND semana_fin >= $2
+  ORDER BY semana_inicio DESC
+  LIMIT 1
+`, [min_date, max_date]);
+
+
+
+    if (semanaRes.rowCount === 0) {
+      return res.status(404).json({ error: 'No hay semana habilitada' });
+    }
+
+    const semana = semanaRes.rows[0];
+
+    const dailyRes = await pool.query(`
+      SELECT * FROM daily_menu
+      WHERE date BETWEEN $1 AND $2
+    `, [semana.semana_inicio, semana.semana_fin]);
+
+    const specialRes = await pool.query(`
+      SELECT * FROM special_company_menu
+      WHERE date BETWEEN $1 AND $2
+        AND (for_role IS NULL OR for_role = 'empresa' OR for_role = 'general')
+    `, [semana.semana_inicio, semana.semana_fin]);
+
+    const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+    const diasMap = {
+      0: 'domingo',
+      1: 'lunes',
+      2: 'martes',
+      3: 'miercoles',
+      4: 'jueves',
+      5: 'viernes',
+      6: 'sabado'
+    };
+
+    const resultado = {};
+    for (const dia of dias) {
+      resultado[dia] = {
+        fijos: [],
+        especiales: [],
+        habilitado: true
+      };
+    }
+
+    for (const item of dailyRes.rows) {
+      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const diaNombre = diasMap[dayjs(fechaLimpia).day()];
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].especiales.push({
+          ...item,
+          date: fechaLimpia
+        });
+      }
+    }
+
+    for (const item of specialRes.rows) {
+      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const diaNombre = diasMap[dayjs(fechaLimpia).day()];
+      if (resultado[diaNombre]) {
+        resultado[diaNombre].especiales.push({
+          ...item,
+          date: fechaLimpia
+        });
+      }
+    }
+
+    res.json(resultado);
+
+  } catch (err) {
+    console.error('❌ Error al armar menú agrupado:', err);
+    res.status(500).json({ error: 'Error interno al armar menú agrupado' });
+  }
+};

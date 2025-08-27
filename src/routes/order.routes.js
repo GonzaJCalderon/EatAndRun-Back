@@ -36,7 +36,7 @@ router.post(
 );
 
 router.get('/', authorizeRoles('usuario', 'empresa'), getUserOrdersController);
-router.get('/all', authorizeRoles('admin', 'moderador'), getAllOrdersController);
+router.get('/all', authorizeRoles('admin', 'moderador', 'usuario'), getAllOrdersController);
 // Solo admins y moderadores pueden modificar
 router.put('/:id', canModifyOrder, updateOrderStatusController);
 

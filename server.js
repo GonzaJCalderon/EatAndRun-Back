@@ -15,11 +15,33 @@ import kitchenOrderRoutes from './src/routes/kitchenOrder.routes.js';
 import userProfileRoutes from './src/routes/userProfile.routes.js';
 import imageRoutes from './src/routes/image.routes.js';
 import semanaMenuRoutes from './src/routes/semanaMenu.routes.js';
+import tartasRoutes from './src/routes/tartas.routes.js';
+import empresaRoutes from './src/routes/empresa.routes.js';
+import invitacionRoutes from './src/routes/invitacion.routes.js';
+import configRoutes from './src/routes/config.routes.js';
+import menuRoutes from './src/routes/menu.routes.js';
 
 const app = express();
 
-// Middlewares
-app.use(cors());
+// ✅ CORS configurado para producción
+const allowedOrigins = [
+  'https://eatandrun.shop',    // 👈 tu frontend en Hostinger
+  'http://localhost:5173'      // 👈 útil para desarrollo local
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir peticiones sin origin (como Postman) o verificadas
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`⛔ CORS: Origen no permitido -> ${origin}`));
+    }
+  },
+  credentials: true
+}));
+
+// ✅ Middleware para JSON
 app.use(express.json());
 
 // 🔍 Logging de cada request
@@ -28,35 +50,49 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rutas
+// ✅ Rutas API
 app.use('/api/auth', authRoutes);
 app.use('/api', profileRoutes);
-app.use('/api/menu', fixedMenuRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/menu', dailyMenuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api', deliveryRoutes);
 app.use('/api/reports', kitchenReportRoutes);
 app.use('/api/kitchen/orders', kitchenOrderRoutes);
-app.use('/api/users', userProfileRoutes);
-app.use('/api/menu', imageRoutes); 
-app.use('/api/menu', semanaMenuRoutes);
+app.use('/api/users', userProfileRoutes)
+app.use('/api/fixed', fixedMenuRoutes);     
+app.use('/api/daily', dailyMenuRoutes);
+app.use('/api/semana', semanaMenuRoutes);
+app.use('/api/images', imageRoutes);
 app.use('/api/perfil', userProfileRoutes);
+app.use('/api/tartas', tartasRoutes);
+app.use('/api/empresa', empresaRoutes);
+app.use('/api/invitacion', invitacionRoutes);
+app.use('/api/config', configRoutes);
+app.use('/api/menu', menuRoutes);
 
-// Ruta raíz
+// ✅ Ruta raíz
 app.get('/', (req, res) => {
   res.send(`
     <h1>🍽️ Eat and Run API is running</h1>
     <p>✔️ Backend listo para recibir peticiones</p>
   `);
 });
+app.get('/debug-tz', (req, res) => {
+  const now = new Date();
+  res.json({
+    date: now.toString(),
+    iso: now.toISOString(),
+    tzOffset: now.getTimezoneOffset(),
+  });
+});
 
-// Ruta 404 para cualquier otra cosa
+
+// ❌ Ruta 404 para todo lo demás
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada 😕' });
 });
 
-// Iniciar servidor
+// ✅ Iniciar servidor
 app.listen(config.port, () => {
   console.log(`🚀 Server running at http://localhost:${config.port}`);
 });

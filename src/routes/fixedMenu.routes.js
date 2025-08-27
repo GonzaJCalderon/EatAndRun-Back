@@ -13,26 +13,28 @@ import { uploadPlato } from '../middlewares/upload.middleware.js'; // ✅ correg
 
 const router = express.Router();
 
-router.get('/fixed', verifyToken, getFixedMenu);
+router.get('/', verifyToken, getFixedMenu);
 
+// ✅ corregido
 router.post(
-  '/fixed',
+  '/',
   verifyToken,
   authorizeRoles('admin', 'moderador'),
-  uploadPlato.single('image'), // ✅ corregido
+  uploadPlato.single('image'),
   createFixedItem
 );
 
+
 router.put(
-  '/fixed/:id',
+  '/:id',
   verifyToken,
   authorizeRoles('admin', 'moderador'),
   uploadPlato.single('image'), // 👈 AÑADILO AQUÍ
   updateFixedItem
 );
-router.delete('/fixed/:id', verifyToken, authorizeRoles('admin', 'moderador'), deleteFixedItem);
+router.delete('/:id', verifyToken, authorizeRoles('admin', 'moderador'), deleteFixedItem);
 // En lugar de repetir /fixed
-router.get('/fixed/by-role', verifyToken, getFixedMenuByRole);
+router.get('/by-role', verifyToken, getFixedMenuByRole);
 
 
 

@@ -77,17 +77,34 @@ export const createOrderController = async (req, res) => {
 
   try {
     // 🗓️ Validar semana activa
-    const lunesSemana = new Date(fecha_entrega).toISOString().slice(0, 10);
-    const result = await pool.query(
-      'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
-      [lunesSemana]
-    );
-    const semana = result.rows[0];
+ 
+    // ✅ Línea corregida
+const getLunesFromFecha = (fecha) => {
+  const fechaDayjs = dayjs(fecha).tz('America/Argentina/Buenos_Aires');
+  const dayOfWeek = fechaDayjs.day();
+  const lunes = dayOfWeek === 0 
+    ? fechaDayjs.subtract(6, 'day')
+    : fechaDayjs.subtract(dayOfWeek - 1, 'day');
+  return lunes.format('YYYY-MM-DD');
+};
 
-    if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
-    if (semana.cierre && new Date(semana.cierre) < new Date()) {
-      return res.status(400).json({ error: '⏰ El plazo ya cerró' });
-    }
+const lunesSemana = getLunesFromFecha(fecha_entrega);
+    const result = await pool.query(
+  'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
+  [lunesSemana]
+);
+const semana = result.rows[0];
+
+// Agregar esta validación
+if (!semana) {
+  return res.status(400).json({ 
+    error: `No hay configuración para la semana del ${lunesSemana}. Contacta al administrador.`,
+    fecha_entrega,
+    semana_calculada: lunesSemana
+  });
+}
+
+if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
 
     // ✅ Obtener precios actualizados
     const precios = await getConfig('precios');

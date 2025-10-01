@@ -2,6 +2,8 @@ import { pool } from '../db/index.js';
 import { getLunesProximaSemana } from '../utils/date.utils.js';
 import { getOrCreateSemanaActual, actualizarSemanaCompletaService } from '../utils/getOrCreateSemanaActual.js';
 import dayjs, { isoToDateOnly, toDateOnly, mondayOf, fridayOf } from '../utils/tiempo.js';
+import { filtrarSemanasPorDiaActual } from '../utils/filtrarSemanasPorDiaActual.js';
+
 
 
 export const getSemanaActualController = async (req, res) => {
@@ -13,6 +15,8 @@ export const getSemanaActualController = async (req, res) => {
       ORDER BY semana_inicio DESC
       LIMIT 1
     `);
+
+    
 
     if (rows.length === 0) {
       return res.status(200).json({
@@ -386,27 +390,37 @@ export const getSemanasHabilitadasController = async (req, res) => {
 export const getSemanasDisponiblesParaPedidosController = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, semana_inicio, semana_fin, inicio_toma_pedidos, habilitado, cierre
+      SELECT id, semana_inicio, semana_fin, inicio_toma_pedidos, habilitado, cierre, dias_habilitados
       FROM menu_semana
-      WHERE inicio_toma_pedidos <= CURRENT_DATE
+      WHERE inicio_toma_pedidos IS NOT NULL
+        AND inicio_toma_pedidos <= CURRENT_DATE
         AND cierre >= CURRENT_DATE
         AND habilitado = true
       ORDER BY semana_inicio ASC
     `);
 
+    // ⬅️ Agregalo acá
+    console.log("🔍 Todas las semanas habilitadas y abiertas:", result.rows.map(s => s.semana_inicio));
+
     const semanas = result.rows.map(s => ({
       ...s,
       semana_inicio: toDateOnly(s.semana_inicio),
-      semana_fin:    toDateOnly(s.semana_fin),
-      cierre:        s.cierre ? toDateOnly(s.cierre) : null,
+      semana_fin: toDateOnly(s.semana_fin),
+      cierre: s.cierre ? toDateOnly(s.cierre) : null,
+      dias_habilitados: typeof s.dias_habilitados === 'object'
+        ? s.dias_habilitados
+        : JSON.parse(s.dias_habilitados || '{}'),
     }));
 
-    return res.json({ semanas });
+    const filtradas = filtrarSemanasPorDiaActual(semanas);
+
+    return res.json({ semanas: filtradas });
   } catch (error) {
     console.error('❌ Error al obtener semanas con pedidos disponibles:', error);
     return res.status(500).json({ error: 'Error interno al obtener semanas disponibles' });
   }
 };
+
 
 
 export const eliminarSemanaSiNoTienePedidos = async (req, res) => {

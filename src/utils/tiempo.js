@@ -4,34 +4,30 @@ import 'dayjs/locale/es.js';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
-import isBetween from 'dayjs/plugin/isBetween.js'; 
-
+import isBetween from 'dayjs/plugin/isBetween.js';
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'; // ⬅️ NUEVO
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(isoWeek);
-dayjs.extend(isBetween); 
+dayjs.extend(isBetween);
+dayjs.extend(isSameOrBefore); // ⬅️ NUEVO
 dayjs.locale('es');
 
 export const TZ = 'America/Argentina/Buenos_Aires';
-
 
 // ✅ "date-only" en AR
 export const toDateOnly = (s) => parseDateOnlyInTZ(s).format('YYYY-MM-DD');
 
 // ✅ ISO con Z → date-only (sin mover el día)
-// ⚠️ ANTES usabas: dayjs(s).tz(TZ) -> convierte y puede retroceder un día
-const parseDateOnlyInTZ = (s) => dayjs.utc(s); // ✅ no convierte la fecha
+const parseDateOnlyInTZ = (s) => dayjs.utc(s);
 
-
-export const mondayOf  = (s) => parseDateOnlyInTZ(s).startOf('isoWeek');
-export const fridayOf  = (s) => mondayOf(s).add(4, 'day');
+export const mondayOf = (s) => parseDateOnlyInTZ(s).startOf('isoWeek');
+export const fridayOf = (s) => mondayOf(s).add(4, 'day');
 
 export const isoToDateOnly = (s) => {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;   // ya es date-only
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   return dayjs.utc(s).format('YYYY-MM-DD');
 };
 
-
-// (opcional)
 export default dayjs;

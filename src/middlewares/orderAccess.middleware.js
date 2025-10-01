@@ -1,6 +1,29 @@
 import { pool } from '../db/index.js';
 
 
+// 🔐 Solo permite modificar si el pedido aún tiene días futuros
+import dayjs from 'dayjs';
+import { getPedidoConItemsById } from '../models/order.model.js';
+
+export const canEditOrder = async (req, res, next) => {
+  const { id } = req.params;
+  const pedido = await getPedidoConItemsById(id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  const hoy = dayjs().tz('America/Argentina/Buenos_Aires').startOf('day');
+  const fechas = Object.values(pedido.pedido?.fecha_dia_por_dia || {});
+  const editable = fechas.some((fechaStr) => {
+    const fecha = dayjs(fechaStr).tz('America/Argentina/Buenos_Aires').startOf('day');
+    return hoy.isBefore(fecha); // día aún no llegó
+  });
+
+  if (!editable) {
+    return res.status(403).json({ error: 'Este pedido ya no se puede editar' });
+  }
+
+  next();
+};
+
 
 export const canViewOrder = async (req, res, next) => {
   const userId = req.user.id;

@@ -308,14 +308,27 @@ const fechasRes = await pool.query(`
 `);
 const { min_date, max_date } = fechasRes.rows[0];
 
-const semanaRes = await pool.query(`
-  SELECT * FROM menu_semana
+let semanaRes = await pool.query(`
+  SELECT *
+  FROM menu_semana
   WHERE habilitado = true
     AND semana_inicio <= $1
     AND semana_fin >= $2
   ORDER BY semana_inicio DESC
   LIMIT 1
 `, [min_date, max_date]);
+
+if (semanaRes.rowCount === 0) {
+  // 🔄 Buscar la última semana habilitada antes del rango
+  semanaRes = await pool.query(`
+    SELECT *
+    FROM menu_semana
+    WHERE habilitado = true
+    ORDER BY semana_inicio DESC
+    LIMIT 1
+  `);
+}
+
 
 
 

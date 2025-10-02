@@ -285,6 +285,7 @@ export const getAllOrdersController = async (req, res) => {
         observaciones: row.observaciones,
         comprobanteUrl: row.comprobante_url,
         comprobanteNombre: row.comprobante_nombre,
+        nota_admin: row.nota_admin,
         pedido
       };
     });
@@ -430,49 +431,140 @@ export const updatePedidoFields = async (req, res) => {
 
 
 export const updateOrderItemsController = async (req, res) => {
-  const { id } = req.params;
-  const { items } = req.body; // items es un array completo reemplazando los actuales
-
-  if (!Array.isArray(items)) {
-    return res.status(400).json({ error: 'Items inválidos. Esperado array.' });
-  }
-
   const client = await pool.connect();
-
   try {
+    console.log('🔎 req.params:', req.params); 
+    const orderId = parseInt(req.params.id, 10);
+    console.log('🔎 orderId calculado:', orderId);
+
+    const { items } = req.body;
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Formato inválido de items' });
+    }
+
     await client.query('BEGIN');
 
-    // 🚮 Borra los ítems anteriores de este pedido
-    await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+    // 🔠 Normalizador de día
+    const normalizeDia = (d = '') =>
+      String(d)
+        .split(' ')[0]
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
 
-    // ➕ Inserta los nuevos ítems
-    for (const item of items) {
-      const { item_type, item_id, item_name, quantity, dia, precio_unitario } = item;
+    const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
-      await client.query(`
-        INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        id,
-        item_type,
-        !isNaN(parseInt(item_id)) ? parseInt(item_id) : null,
-        item_name,
-        quantity,
-        dia || null,
-        precio_unitario || null
-      ]);
+    // 📅 Traer orden
+    const { rows: [order] } = await client.query(
+      'SELECT fecha_entrega FROM orders WHERE id = $1',
+      [orderId]
+    );
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Orden ${orderId} no encontrada` });
+    }
+
+    const fechaEntrega = dayjs(order.fecha_entrega).tz('America/Argentina/Buenos_Aires');
+
+    // 🗓️ Calcular fecha_dia
+    const calcularFechaDia = (diaTexto) => {
+      const d = normalizeDia(diaTexto);
+      const idx = diasValidos.indexOf(d);
+      if (idx === -1) return null;
+      const lunes = fechaEntrega.startOf('week').add(1, 'day'); 
+      return lunes.add(idx, 'day').startOf('day').toDate();
+    };
+
+    // 📥 Items actuales
+    const { rows: existentes } = await client.query(
+      'SELECT id, item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1',
+      [orderId]
+    );
+
+    const keyOf = (t, id) => `${t}-${String(id)}`;
+    const mapaExistentes = new Map(existentes.map(e => [keyOf(e.item_type, e.item_id), e]));
+
+    let updated = 0, inserted = 0, deleted = 0;
+
+    // 🔄 Upsert
+    for (const it of items) {
+      const { item_type, item_id, item_name, quantity, dia, precio_unitario } = it ?? {};
+      if (!item_type || item_id == null || dia == null || quantity == null) continue;
+
+      const diaNorm = normalizeDia(dia);
+      const fecha_dia = calcularFechaDia(diaNorm);
+      if (!fecha_dia) continue;
+
+      const k = keyOf(item_type, item_id);
+      const existente = mapaExistentes.get(k);
+
+      if (existente) {
+        // ✅ Comparar con Number()
+        const cambioCantidad = Number(existente.quantity) !== Number(quantity);
+        const cambioDia = normalizeDia(existente.dia || '') !== diaNorm;
+
+        if (cambioCantidad || cambioDia) {
+          await client.query(
+            `UPDATE order_items
+             SET quantity = $1,
+                 dia = $2,
+                 fecha_dia = $3,
+                 item_name = COALESCE($4, item_name),
+                 precio_unitario = COALESCE($5, precio_unitario)
+             WHERE id = $6`,
+            [Number(quantity), diaNorm, fecha_dia, item_name ?? null, precio_unitario ?? null, existente.id]
+          );
+          updated++;
+        }
+
+        mapaExistentes.delete(k);
+      } else {
+        // 🆕 Insertar
+        await client.query(
+          `INSERT INTO order_items
+             (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario, fecha_dia)
+           VALUES ($1,       $2,        $3,      $4,        $5,      $6,   $7,              $8)`,
+          [
+            orderId,
+            item_type,
+            item_id,
+            item_name ?? `ID:${item_id}`,
+            Number(quantity),
+            diaNorm,
+            precio_unitario ?? null,
+            fecha_dia
+          ]
+        );
+        inserted++;
+      }
+    }
+
+    // 🗑️ Eliminar los que no vinieron
+    for (const restante of mapaExistentes.values()) {
+      await client.query('DELETE FROM order_items WHERE id = $1', [restante.id]);
+      deleted++;
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Ítems actualizados correctamente' });
-  } catch (err) {
+
+    console.log('✅ Resumen update-items:', { orderId, updated, inserted, deleted });
+    return res.json({ success: true, resumen: { updated, inserted, deleted } });
+
+  } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error al actualizar ítems:', err);
-    res.status(500).json({ error: 'Error al actualizar ítems', details: err.message });
+    console.error('❌ Error en updateOrderItemsController:', error);
+    return res.status(500).json({ error: 'Error actualizando los items', details: error.message });
   } finally {
     client.release();
   }
 };
+
+
+
+
+
+
+
 
 
 

@@ -20,72 +20,58 @@ export const createOrder = async (userId, items, total, {
       .toLowerCase();
   const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
-  const getMonday = (djs) => {
-    const dow = djs.day(); // 0..6
-    return djs.subtract((dow + 6) % 7, 'day').startOf('day');
-  };
-
   try {
     await client.query('BEGIN');
 
-    // 1) Traer semanas habilitadas reales (NO crear nuevas acá)
-    const semanasActivas = await getSemanasActivas(); // [{ id, semana_inicio, semana_fin, habilitado, dias_habilitados }, ...]
+    const semanasActivas = await getSemanasActivas();
     if (!semanasActivas.length) {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
     }
 
-    // 2) Determinar la fecha candidata
-    //    - si viene `fechaEntrega`, la usamos
-    //    - si no, intentamos deducirla del contenido (esta versión usa items con "dia")
     let candidata = null;
+    let semanaSel = null;
 
     if (fechaEntrega) {
       const f = dayjs(fechaEntrega).tz(TZ);
       if (!f.isValid()) throw new Error(`fechaEntrega inválida: ${fechaEntrega}`);
-      candidata = f.startOf('day').toDate();
+      candidata = f.startOf('day');
+
+      semanaSel = semanasActivas.find(s =>
+        candidata.isBetween(
+          dayjs(s.semana_inicio).startOf('day'),
+          dayjs(s.semana_fin).endOf('day'),
+          'day',
+          '[]'
+        )
+      );
+
+      if (!semanaSel) {
+        throw new Error(`No hay configuración para la semana del ${candidata.format('YYYY-MM-DD')}`);
+      }
+
     } else {
-      // Deducción desde items: si hay algún item con `dia`, mapearlo a la PRIMERA semana activa
       const firstActive = semanasActivas[0];
       const mondayFirst = dayjs(firstActive.semana_inicio).tz(TZ).startOf('day');
       const itemConDia = (items || []).find(it => DIAS_VALIDOS.includes(normalizeDia(it.dia)));
       if (itemConDia) {
         const diaNorm = normalizeDia(itemConDia.dia);
-        const idx = DIAS_VALIDOS.indexOf(diaNorm); // 0..4
+        const idx = DIAS_VALIDOS.indexOf(diaNorm);
         const fechaDia = mondayFirst.add(idx, 'day').startOf('day');
-        candidata = fechaDia.toDate();
+        candidata = fechaDia;
       } else {
-        // fallback: inicio de la primera semana activa
-        candidata = mondayFirst.toDate();
+        candidata = mondayFirst;
       }
+      semanaSel = firstActive;
     }
 
-    // 3) Forzar la fecha candidata a caer dentro de una semana habilitada
-    let fechaForzada = clampToSemanasActivas(candidata, semanasActivas);
-    if (!fechaForzada) {
-      // si por algún motivo viene null, usa inicio de la primera semana
-      fechaForzada = dayjs(semanasActivas[0].semana_inicio).tz(TZ).startOf('day').toDate();
-    }
+    // ✅ Usamos directamente la fecha calculada (sin clamp)
+    const fechaEntregaFinal = candidata.hour(12).minute(0).second(0).millisecond(0).toDate();
 
-    // 4) Seleccionar la semana que contiene la fechaForzada
-    const fechaDJ = dayjs(fechaForzada).tz(TZ).startOf('day');
-    let semanaSel =
-      semanasActivas.find(
-        s => fechaDJ.isBetween(dayjs(s.semana_inicio).startOf('day'), dayjs(s.semana_fin).endOf('day'), 'day', '[]')
-      ) || semanasActivas[0];
-
-    // 5) Validar fecha dentro de semana (por las dudas)
-    const inicio = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
-    const fin    = dayjs(semanaSel.semana_fin).tz(TZ).endOf('day');
-    if (!fechaDJ.isBetween(inicio, fin, 'day', '[]')) {
-      // Snap a inicio de la semana seleccionada
-      fechaForzada = inicio.toDate();
-    }
-
-    // 6) Filtrar items por días habilitados de la semana
+    // 🎯 Filtrar items por días habilitados de la semana seleccionada
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
     for (const item of items || []) {
-      if (!item.dia) { // sin día (tarta/skip/global) pasan
+      if (!item.dia) {
         itemsFiltrados.push(item);
         continue;
       }
@@ -95,7 +81,7 @@ export const createOrder = async (userId, items, total, {
       itemsFiltrados.push({ ...item, dia: diaNorm });
     }
 
-    // 7) Crear orden con fecha_entrega FORZADA (queda dentro de semana habilitada)
+    // 🧾 Insertar orden
     const orderInsert = await client.query(`
       INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -103,8 +89,7 @@ export const createOrder = async (userId, items, total, {
     `, [
       userId,
       total,
-      // guardamos a las 12:00 para evitar saltos por TZ/UTC al convertir
-      dayjs(fechaForzada).tz(TZ).hour(12).minute(0).second(0).millisecond(0).toDate(),
+      fechaEntregaFinal,
       observaciones || '',
       metodoPago || null,
       tipoMenu || 'usuario',
@@ -113,7 +98,7 @@ export const createOrder = async (userId, items, total, {
 
     const orderId = orderInsert.rows[0].id;
 
-    // 8) Insertar ítems con fecha_dia calculada respecto al Lunes de la semana SELECCIONADA
+    // 🧮 Insertar items
     const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
 
     for (const item of itemsFiltrados) {
@@ -122,13 +107,12 @@ export const createOrder = async (userId, items, total, {
 
       let fechaDia = null;
       if (dia) {
-        const index = DIAS_VALIDOS.indexOf(dia); // 0..4
+        const index = DIAS_VALIDOS.indexOf(dia);
         if (index !== -1) {
           fechaDia = mondayOfWeek.add(index, 'day').startOf('day').toDate();
         }
       }
 
-      // Resolver nombre/id como ya lo hacías
       let finalItemId = null;
       let finalItemName = null;
 
@@ -175,6 +159,7 @@ export const createOrder = async (userId, items, total, {
       message: 'Pedido creado correctamente',
       cantidadItems: itemsFiltrados.length
     };
+
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ Error al crear la orden en DB:', err);

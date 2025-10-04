@@ -52,7 +52,9 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 
 
 export const createOrderController = async (req, res) => {
-  const { items, observaciones, metodoPago, fecha_entrega } = req.body;
+const { items, observaciones, metodoPago } = req.body;
+const fecha_entrega = req.body.fecha_entrega || req.body.fecha_Entrega;
+
   
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
@@ -132,6 +134,8 @@ if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está
       switch (item.item_type) {
         case 'daily':
         case 'fijo':
+        case 'especial':  // ⬅️ AGREGAR ESTO
+  case 'company': 
           totalPlatos += cantidad;
           total += cantidad * precios.plato;
           diasConPlato.add(item.dia);
@@ -176,12 +180,13 @@ if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está
     }
 
     // 🧾 Crear pedido
-    const order = await createOrder(userId, items, total, {
-      fechaEntrega: fecha_entrega,
-      observaciones,
-      metodoPago,
-      tipoMenu: tipo_menu,
-    });
+   const order = await createOrder(userId, items, total, {
+  fechaEntrega: fecha_entrega,
+  observaciones,
+  metodoPago,
+  tipoMenu: tipo_menu,
+  comprobanteUrl: null  // ⬅️ AGREGAR ESTO
+});
 
     res.status(201).json(order);
   } catch (err) {
@@ -443,7 +448,7 @@ export const updateOrderItemsController = async (req, res) => {
         
         if (idx !== -1) {
           const fechaBase = dayjs(order.fecha_entrega).tz('America/Argentina/Buenos_Aires');
-          const lunes = fechaBase.startOf('week').add(1, 'day');
+        const lunes = fechaBase.startOf('isoWeek'); 
           fechaDiaFinal = lunes.add(idx, 'day').startOf('day').toDate();
         }
       }
@@ -483,10 +488,11 @@ export const updateOrderItemsController = async (req, res) => {
     }
 
     // 🔥 Recalcular total
-    const { rows: nuevosItems } = await client.query(
-      'SELECT item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1',
-      [orderId]
-    );
+  // 🔥 Recalcular total - FILTRAR items con cantidad 0
+const { rows: nuevosItems } = await client.query(
+  'SELECT item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1 AND quantity > 0',
+  [orderId]
+);
 
     const nuevoTotal = await calcularTotalPedido(nuevosItems);
     await client.query('UPDATE orders SET total = $1 WHERE id = $2', [nuevoTotal, orderId]);
@@ -512,14 +518,7 @@ export const updateOrderItemsController = async (req, res) => {
 };
 
 
-
-
-
-
-
-
-
- const calcularTotalPedido = async (items) => {
+const calcularTotalPedido = async (items) => {
   const precios = await getConfig('precios');
   if (!precios) throw new Error('❌ No hay configuración de precios');
 
@@ -533,13 +532,14 @@ export const updateOrderItemsController = async (req, res) => {
     switch (item.item_type) {
       case 'daily':
       case 'fijo':
+      case 'especial':  // ⬅️ AGREGAR
+      case 'company':   // ⬅️ AGREGAR
         totalPlatos += cantidad;
         total += cantidad * precios.plato;
         diasConPlato.add(item.dia);
         break;
 
       case 'extra':
-        // el precio debe venir del ID o hardcodearlo (opcional)
         const precioExtra = {
           1: precios.postre,
           2: precios.ensalada,
@@ -556,7 +556,6 @@ export const updateOrderItemsController = async (req, res) => {
         break;
 
       case 'skip':
-        // no suma nada
         break;
 
       default:
@@ -564,16 +563,13 @@ export const updateOrderItemsController = async (req, res) => {
     }
   }
 
-  // Sumar envío por cada día con plato
   total += diasConPlato.size * precios.envio;
 
-  // Descuento si supera el umbral
   if (totalPlatos >= precios.umbral_descuento) {
     total -= totalPlatos * precios.descuento_por_plato;
   }
 
   return total;
 };
-
 
 

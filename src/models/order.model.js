@@ -53,7 +53,7 @@ export const createOrder = async (userId, items, total, {
       }
 
       const base = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
-      mondayOfWeek = base.isoWeekday(1); // lunes real de esa semana
+      mondayOfWeek = base.isoWeekday(1);
     } else {
       const firstActive = semanasActivas[0];
       semanaSel = firstActive;
@@ -74,7 +74,7 @@ export const createOrder = async (userId, items, total, {
 
     const fechaEntregaFinal = candidata.hour(12).minute(0).second(0).millisecond(0).toDate();
 
-    // Filtrar items por días habilitados de la semana seleccionada
+    // 🔥 CAMBIO AQUÍ: extraer solo el día antes de normalizar
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
     for (const item of items || []) {
@@ -82,9 +82,14 @@ export const createOrder = async (userId, items, total, {
         itemsFiltrados.push(item);
         continue;
       }
-      const diaNorm = normalizeDia(item.dia);
+      
+      // Extraer solo el día del formato "viernes-2025-10-03"
+      const diaParts = String(item.dia).split('-');
+      const diaNorm = normalizeDia(diaParts[0]); // solo "viernes"
+      
       if (!DIAS_VALIDOS.includes(diaNorm)) continue;
       if (!diasHabilitados[diaNorm]) continue;
+      
       itemsFiltrados.push({ ...item, dia: diaNorm });
     }
 
@@ -104,20 +109,17 @@ export const createOrder = async (userId, items, total, {
 
     const orderId = orderInsert.rows[0].id;
 
-const itemsParaInsertar = itemsFiltrados.filter(item => {
-  const tipo = String(item.item_type || '').trim().toLowerCase();
-  if (tipo === 'skip') return false;
-  const qty = parseInt(item.quantity);
-  return !isNaN(qty) && qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
-});
-
+    const itemsParaInsertar = itemsFiltrados.filter(item => {
+      const tipo = String(item.item_type || '').trim().toLowerCase();
+      if (tipo === 'skip') return false;
+      const qty = parseInt(item.quantity);
+      return !isNaN(qty) && qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
+    });
 
     console.log(`Items a insertar: ${itemsParaInsertar.length} de ${itemsFiltrados.length}`);
 
     for (const item of itemsParaInsertar) {
       const { item_id, quantity, dia, precio } = item;
-
-      // 🔥 normalizar tipo para evitar problemas
       const tipo = String(item.item_type || '').trim().toLowerCase();
 
       if (!['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo)) {
@@ -143,12 +145,15 @@ const itemsParaInsertar = itemsFiltrados.filter(item => {
         finalItemName = String(item_id ?? 'Tarta sin nombre');
       }
 
-      if (['daily', 'fijo', 'extra'].includes(tipo)) {
+      // Manejo unificado de daily, fijo, extra, especial
+      if (['daily', 'fijo', 'extra', 'especial'].includes(tipo)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
+        
         const tabla = {
           daily: 'menu_daily',
           fijo: 'menu_fixed',
-          extra: 'menu_extras'
+          extra: 'menu_extras',
+          especial: 'menu_especiales'
         }[tipo];
 
         if (tabla && finalItemId !== null) {
@@ -162,15 +167,16 @@ const itemsParaInsertar = itemsFiltrados.filter(item => {
         }
       }
 
-      if (tipo === 'especial') {
+      // Manejo de company
+      if (tipo === 'company') {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
         if (finalItemId !== null) {
           try {
-            const res = await client.query(`SELECT name FROM menu_especiales WHERE id = $1`, [finalItemId]);
-            finalItemName = res.rows[0]?.name || `Especial ${finalItemId}`;
+            const res = await client.query(`SELECT name FROM menu_company WHERE id = $1`, [finalItemId]);
+            finalItemName = res.rows[0]?.name || `Company ${finalItemId}`;
           } catch (err) {
-            console.error(`Error obteniendo especial: ${err.message}`);
-            finalItemName = `Especial ${finalItemId}`;
+            console.error(`Error obteniendo company: ${err.message}`);
+            finalItemName = `Company ${finalItemId}`;
           }
         }
       }
@@ -187,7 +193,7 @@ const itemsParaInsertar = itemsFiltrados.filter(item => {
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
           orderId,
-          tipo, // usar tipo normalizado
+          tipo,
           finalItemId,
           finalItemName,
           Number(quantity) || 0,
@@ -196,10 +202,10 @@ const itemsParaInsertar = itemsFiltrados.filter(item => {
           fechaDia
         ]);
 
-        console.log(`Item insertado: ${tipo} - ${finalItemName} x${quantity}`);
+        console.log(`✅ Item insertado: ${tipo} - ${finalItemName} x${quantity}`);
 
       } catch (itemError) {
-        console.error(`Error insertando item ${tipo} - ${item_id}:`, itemError.message);
+        console.error(`❌ Error insertando item ${tipo} - ${item_id}:`, itemError.message);
         throw new Error(`Error al insertar item ${tipo} - ${item_id}: ${itemError.message}`);
       }
     }
@@ -220,8 +226,6 @@ const itemsParaInsertar = itemsFiltrados.filter(item => {
     client.release();
   }
 };
-
-
 
 
 

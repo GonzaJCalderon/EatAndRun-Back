@@ -433,7 +433,9 @@ export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
   try {
     // 1. Obtener semana por ID
     const semanaResult = await pool.query(`
-      SELECT semana_inicio, semana_fin FROM menu_semana WHERE id = $1
+      SELECT semana_inicio, semana_fin
+      FROM menu_semana
+      WHERE id = $1
     `, [id]);
 
     if (semanaResult.rows.length === 0) {
@@ -441,6 +443,14 @@ export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
     }
 
     const { semana_inicio, semana_fin } = semanaResult.rows[0];
+
+    // 🔐 Validar que la semana sea futura
+    const hoy = dayjs().format("YYYY-MM-DD");
+    if (dayjs(semana_inicio).isSameOrBefore(hoy)) {
+      return res.status(400).json({
+        error: '❌ Solo se pueden eliminar semanas futuras (aún no comenzadas).'
+      });
+    }
 
     // 2. Verificar si hay pedidos en ese rango de fechas
     const pedidos = await pool.query(`
@@ -452,19 +462,20 @@ export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
 
     if (totalPedidos > 0) {
       return res.status(400).json({
-        error: '⚠️ No se puede eliminar la semana: hay pedidos en el rango de fechas'
+        error: '⚠️ No se puede eliminar la semana: hay pedidos en el rango de fechas.'
       });
     }
 
     // 3. Eliminar semana
     await pool.query(`DELETE FROM menu_semana WHERE id = $1`, [id]);
 
-    return res.json({ message: '✅ Semana eliminada correctamente' });
+    return res.json({ message: '✅ Semana futura eliminada correctamente' });
   } catch (error) {
     console.error('❌ Error al eliminar semana:', error);
     return res.status(500).json({ error: 'Error interno al eliminar semana' });
   }
 };
+
 
 export const crearSemanaPuraController = async (req, res) => {
   try {
@@ -511,18 +522,17 @@ export const crearSemanaPuraController = async (req, res) => {
 
 export const getTodasLasSemanasController = async (req, res) => {
   try {
-    const { rows } = await pool.query(`
-      SELECT id, semana_inicio, semana_fin, habilitado, dias_habilitados, cierre
+    const result = await pool.query(`
+      SELECT id, semana_inicio, semana_fin, cierre, habilitado, dias_habilitados
       FROM menu_semana
-      ORDER BY semana_inicio DESC
+      ORDER BY semana_inicio ASC
     `);
 
-    // normalizar fechas igual que en otros controllers
-    const semanas = rows.map(s => ({
+    const semanas = result.rows.map(s => ({
       ...s,
       semana_inicio: toDateOnly(s.semana_inicio),
-      semana_fin: toDateOnly(s.semana_fin),
-      cierre: s.cierre ? toDateOnly(s.cierre) : null,
+      semana_fin:    toDateOnly(s.semana_fin),
+      cierre:        s.cierre ? toDateOnly(s.cierre) : null,
       dias_habilitados: typeof s.dias_habilitados === 'object'
         ? s.dias_habilitados
         : JSON.parse(s.dias_habilitados || '{}')
@@ -530,7 +540,7 @@ export const getTodasLasSemanasController = async (req, res) => {
 
     res.json({ semanas });
   } catch (error) {
-    console.error("❌ Error al obtener todas las semanas:", error);
-    res.status(500).json({ error: "Error al obtener todas las semanas" });
+    console.error('❌ Error al obtener todas las semanas:', error);
+    res.status(500).json({ error: 'Error interno al obtener todas las semanas' });
   }
 };

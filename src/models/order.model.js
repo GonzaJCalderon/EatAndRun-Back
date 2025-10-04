@@ -3,6 +3,8 @@ import dayjs from '../utils/tiempo.js';
 import { getSemanasActivas } from '../models/semanas.model.js';
 import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechaspedidos.js';
 
+
+
 export const createOrder = async (userId, items, total, {
   fechaEntrega,
   observaciones,
@@ -30,6 +32,7 @@ export const createOrder = async (userId, items, total, {
 
     let candidata = null;
     let semanaSel = null;
+    let mondayOfWeek = null;
 
     if (fechaEntrega) {
       const f = dayjs(fechaEntrega).tz(TZ);
@@ -49,25 +52,29 @@ export const createOrder = async (userId, items, total, {
         throw new Error(`No hay configuración para la semana del ${candidata.format('YYYY-MM-DD')}`);
       }
 
+      const base = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+      mondayOfWeek = base.isoWeekday(1); // lunes real de esa semana
     } else {
       const firstActive = semanasActivas[0];
-      const mondayFirst = dayjs(firstActive.semana_inicio).tz(TZ).startOf('day');
+      semanaSel = firstActive;
+
+      const base = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+      mondayOfWeek = base.isoWeekday(1);
+
       const itemConDia = (items || []).find(it => DIAS_VALIDOS.includes(normalizeDia(it.dia)));
       if (itemConDia) {
         const diaNorm = normalizeDia(itemConDia.dia);
         const idx = DIAS_VALIDOS.indexOf(diaNorm);
-        const fechaDia = mondayFirst.add(idx, 'day').startOf('day');
+        const fechaDia = mondayOfWeek.add(idx, 'day').startOf('day');
         candidata = fechaDia;
       } else {
-        candidata = mondayFirst;
+        candidata = mondayOfWeek;
       }
-      semanaSel = firstActive;
     }
 
-    // ✅ Usamos directamente la fecha calculada (sin clamp)
     const fechaEntregaFinal = candidata.hour(12).minute(0).second(0).millisecond(0).toDate();
 
-    // 🎯 Filtrar items por días habilitados de la semana seleccionada
+    // Filtrar items por días habilitados de la semana seleccionada
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
     for (const item of items || []) {
@@ -81,7 +88,6 @@ export const createOrder = async (userId, items, total, {
       itemsFiltrados.push({ ...item, dia: diaNorm });
     }
 
-    // 🧾 Insertar orden
     const orderInsert = await client.query(`
       INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -98,58 +104,104 @@ export const createOrder = async (userId, items, total, {
 
     const orderId = orderInsert.rows[0].id;
 
-    // 🧮 Insertar items
-    const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+const itemsParaInsertar = itemsFiltrados.filter(item => {
+  const tipo = String(item.item_type || '').trim().toLowerCase();
+  if (tipo === 'skip') return false;
+  const qty = parseInt(item.quantity);
+  return !isNaN(qty) && qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
+});
 
-    for (const item of itemsFiltrados) {
-      const { item_type, item_id, quantity, dia, precio } = item;
-      if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) continue;
+
+    console.log(`Items a insertar: ${itemsParaInsertar.length} de ${itemsFiltrados.length}`);
+
+    for (const item of itemsParaInsertar) {
+      const { item_id, quantity, dia, precio } = item;
+
+      // 🔥 normalizar tipo para evitar problemas
+      const tipo = String(item.item_type || '').trim().toLowerCase();
+
+      if (!['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo)) {
+        console.warn(`⚠️ Tipo de item no válido, se omite: ${item.item_type}`);
+        continue;
+      }
 
       let fechaDia = null;
+      let diaFinal = null;
       if (dia) {
-        const index = DIAS_VALIDOS.indexOf(dia);
+        const diaNormalizado = normalizeDia(dia?.split?.('-')?.[0] || '');
+        const index = DIAS_VALIDOS.indexOf(diaNormalizado);
         if (index !== -1) {
-          fechaDia = mondayOfWeek.add(index, 'day').startOf('day').toDate();
+          fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day').toDate();
+          diaFinal = diaNormalizado;
         }
       }
 
       let finalItemId = null;
       let finalItemName = null;
 
-      if (item_type === 'tarta' || item_type === 'skip') {
-        finalItemName = String(item_id ?? '');
+      if (tipo === 'tarta') {
+        finalItemName = String(item_id ?? 'Tarta sin nombre');
       }
 
-      if (['daily', 'fijo', 'extra'].includes(item_type)) {
+      if (['daily', 'fijo', 'extra'].includes(tipo)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
-        const tabla =
-          item_type === 'daily' ? 'menu_daily' :
-          item_type === 'fijo'  ? 'menu_fixed' :
-          item_type === 'extra' ? 'menu_extras' : null;
+        const tabla = {
+          daily: 'menu_daily',
+          fijo: 'menu_fixed',
+          extra: 'menu_extras'
+        }[tipo];
 
         if (tabla && finalItemId !== null) {
-          const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
-          finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
-        } else if (!finalItemName) {
-          finalItemName = `ID:${item_id}`;
+          try {
+            const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
+            finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
+          } catch (err) {
+            console.error(`Error obteniendo nombre de ${tabla}: ${err.message}`);
+            finalItemName = `ID:${finalItemId}`;
+          }
         }
       }
 
-      await client.query(`
-        INSERT INTO order_items (
-          order_id, item_type, item_id, item_name, quantity, dia, precio_unitario, fecha_dia
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [
-        orderId,
-        item_type,
-        finalItemId,
-        finalItemName,
-        Number(quantity) || 0,
-        dia || null,
-        precio ?? null,
-        fechaDia
-      ]);
+      if (tipo === 'especial') {
+        finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
+        if (finalItemId !== null) {
+          try {
+            const res = await client.query(`SELECT name FROM menu_especiales WHERE id = $1`, [finalItemId]);
+            finalItemName = res.rows[0]?.name || `Especial ${finalItemId}`;
+          } catch (err) {
+            console.error(`Error obteniendo especial: ${err.message}`);
+            finalItemName = `Especial ${finalItemId}`;
+          }
+        }
+      }
+
+      if (!finalItemName) {
+        finalItemName = `ID:${item_id}`;
+      }
+
+      try {
+        await client.query(`
+          INSERT INTO order_items (
+            order_id, item_type, item_id, item_name, quantity, dia, precio_unitario, fecha_dia
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          orderId,
+          tipo, // usar tipo normalizado
+          finalItemId,
+          finalItemName,
+          Number(quantity) || 0,
+          diaFinal || null,
+          precio ?? null,
+          fechaDia
+        ]);
+
+        console.log(`Item insertado: ${tipo} - ${finalItemName} x${quantity}`);
+
+      } catch (itemError) {
+        console.error(`Error insertando item ${tipo} - ${item_id}:`, itemError.message);
+        throw new Error(`Error al insertar item ${tipo} - ${item_id}: ${itemError.message}`);
+      }
     }
 
     await client.query('COMMIT');
@@ -157,17 +209,18 @@ export const createOrder = async (userId, items, total, {
     return {
       id: orderId,
       message: 'Pedido creado correctamente',
-      cantidadItems: itemsFiltrados.length
+      cantidadItems: itemsParaInsertar.length
     };
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('❌ Error al crear la orden en DB:', err);
+    console.error('Error al crear la orden en DB:', err);
     throw err;
   } finally {
     client.release();
   }
 };
+
 
 
 
@@ -233,6 +286,9 @@ export const getAllOrders = async () => {
       CASE WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
     LEFT JOIN menu_extras me ON me.id = 
       CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+      LEFT JOIN menu_especiales ms ON ms.id = 
+  CASE WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+
 
     GROUP BY 
       o.id,
@@ -324,14 +380,16 @@ export const getOrdersByDelivery = async (deliveryId) => {
       json_agg(json_build_object(
         'item_type', oi.item_type,
         'item_id', oi.item_id,
-        'item_name',
-          CASE 
-            WHEN oi.item_type = 'daily' THEN md.name
-            WHEN oi.item_type = 'fijo' THEN mf.name
-            WHEN oi.item_type = 'extra' THEN me.name
-            WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-            ELSE NULL
-          END,
+       'item_name',
+  CASE 
+    WHEN oi.item_type = 'daily' THEN md.name
+    WHEN oi.item_type = 'fijo'  THEN mf.name
+    WHEN oi.item_type = 'extra' THEN me.name
+    WHEN oi.item_type = 'especial' THEN ms.name  -- ✅ agregado
+    WHEN oi.item_type = 'tarta' THEN oi.item_id::text
+    ELSE oi.item_id
+  END,
+
         'quantity', oi.quantity
       )) AS items
     FROM orders o
@@ -484,10 +542,12 @@ function parsePedido(row) {
     if (tipo === 'tarta') {
       pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
     } else if (dia) {
-      if (tipo === 'daily' || tipo === 'fijo') {
-        if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-        pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-      } else if (tipo === 'extra') {
+if (['daily', 'fijo', 'especial', 'company'].includes(tipo)) {
+  if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
+  pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
+}
+
+ else if (tipo === 'extra') {
         if (!pedido.extras[dia]) pedido.extras[dia] = {};
         pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
       }
@@ -592,39 +652,45 @@ console.log('🧪 ¿fecha_dia existe en order_items?', check.rows.length > 0);
 const debugDb = await pool.query(`SELECT current_database(), current_schema();`);
 console.log('📍 DB actual:', debugDb.rows[0]);
 
-  const itemsRes = await pool.query(`
- SELECT 
-  oi.order_id,
-  oi.item_type, 
-  oi.item_id, 
-  oi.item_name,
-  oi.quantity, 
-  oi.dia,
-  oi.precio_unitario,
-  oi.fecha_dia,
+const itemsRes = await pool.query(`
+  SELECT 
+    oi.order_id,
+    oi.item_type, 
+    oi.item_id, 
+    oi.item_name,
+    oi.quantity, 
+    oi.dia,
+    oi.precio_unitario,
+    oi.fecha_dia,
 
-      COALESCE(
-        CASE 
-          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
-          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
-          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
-          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-          ELSE NULL
-        END,
-        oi.item_name,
-        CONCAT('ID:', oi.item_id),
-        'Desconocido'
-      ) AS resolved_name
-   FROM public.order_items oi
+    COALESCE(
+      CASE 
+        WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
+        WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
+        WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN mf.name
+        WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN ms.name
+        WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+        ELSE NULL
+      END,
+      oi.item_name,
+      CONCAT('ID:', oi.item_id),
+      'Desconocido'
+    ) AS resolved_name
 
-    LEFT JOIN menu_extras me ON me.id = 
-      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_daily md ON md.id = 
-      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_fixed mf ON mf.id = 
-      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    WHERE oi.order_id = ANY($1::int[])
-  `, [pedidoIds]);
+  FROM public.order_items oi
+
+  LEFT JOIN menu_extras me ON me.id = 
+    CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_daily md ON md.id = 
+    CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_fixed mf ON mf.id = 
+    CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_especiales ms ON ms.id = 
+    CASE WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+
+  WHERE oi.order_id = ANY($1::int[])
+`, [pedidoIds]);
+
 
   // 3️⃣ Agrupar ítems por pedido
   const itemsPorPedido = {};
@@ -682,6 +748,8 @@ console.log('📍 DB actual:', debugDb.rows[0]);
 
 
 
+
+
 // agrupadorItemsPorTipo.js
 function agruparItemsPorTipo(items) {
   const agrupados = {
@@ -707,7 +775,8 @@ function agruparItemsPorTipo(items) {
       claveDia = `${nombreDia} ${fechaTexto}`;
     }
 
-    if (['daily', 'fijo'].includes(tipo)) {
+  if (['daily', 'fijo', 'especial'].includes(tipo)) {
+
       if (!agrupados.diarios[claveDia]) agrupados.diarios[claveDia] = {};
       agrupados.diarios[claveDia][nombre] = (agrupados.diarios[claveDia][nombre] || 0) + cantidad;
     } else if (tipo === 'extra') {

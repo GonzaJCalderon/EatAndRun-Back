@@ -53,27 +53,38 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 
 export const createOrderController = async (req, res) => {
   const { items, observaciones, metodoPago, fecha_entrega } = req.body;
+  
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
+  console.log('📦 Items recibidos en backend:', JSON.stringify(items, null, 2));
 
   // 🛡️ Validaciones básicas
   if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
   if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
 
-  for (const i of items) {
-    if (!i.item_type || typeof i.quantity === 'undefined') {
-      return res.status(400).json({ error: 'Item malformado', item: i });
-    }
-    if (['daily','fijo','extra'].includes(i.item_type) && (!i.dia || !i.item_id)) {
-      return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
-    }
-    if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
-      return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
-    }
-    if (i.item_type === 'tarta' && !i.item_id) {
-      return res.status(400).json({ error: 'Tarta sin item_id', item: i });
-    }
+for (const i of items) {
+  if (!i.item_type || typeof i.quantity === 'undefined') {
+    return res.status(400).json({ error: 'Item malformado', item: i });
   }
+
+  const requiereDiaYId = ['daily', 'fijo', 'extra', 'especial'];
+  if (requiereDiaYId.includes(i.item_type) && (!i.dia || !i.item_id)) {
+    return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
+  }
+
+  if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
+    return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
+  }
+
+  if (i.item_type === 'especial' && isNaN(parseInt(i.item_id))) {
+    return res.status(400).json({ error: 'Item especial con ID no numérico', item: i });
+  }
+
+  if (i.item_type === 'tarta' && !i.item_id) {
+    return res.status(400).json({ error: 'Tarta sin item_id', item: i });
+  }
+}
+
 
   try {
     // 🗓️ Validar semana activa
@@ -218,84 +229,18 @@ function calcularFechaEntregaDesdeDia(diaTexto, fechaEntrega) {
 
 
 
+// Reemplaza tu getAllOrdersController actual con esta versión corregida
+
 export const getAllOrdersController = async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        o.*,
-        o.tipo_menu,
-        u.name AS usuario_nombre,
-        COALESCE(up.apellido, u.last_name) AS usuario_apellido, -- 👈 acá
-        u.email,
-        up.telefono,
-        up.direccion_principal,
-        json_agg(json_build_object(
-          'item_type', oi.item_type,
-          'item_id', oi.item_id,
-          'item_name', oi.item_name,
-          'quantity', oi.quantity,
-          'dia', oi.dia
-        )) AS items
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal, u.last_name
-      ORDER BY o.created_at DESC
-    `);
-
-    const pedidos = result.rows.map((row) => {
-      const pedido = { diarios: {}, extras: {}, tartas: {} };
-
-      (row.items || []).forEach((item) => {
-        const tipo = item.item_type;
-        const nombre = item.item_name;
-        if (!nombre) return;
-
-        const dia = item.dia || 'sin_dia';
-        const cantidad = Number(item.quantity);
-        if (isNaN(cantidad)) return;
-
-        if (tipo === 'daily' || tipo === 'fijo') {
-          if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-          pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-        } else if (tipo === 'extra') {
-          if (!pedido.extras[dia]) pedido.extras[dia] = {};
-          pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
-        } else if (tipo === 'tarta') {
-          pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
-        }
-      });
-
-      return {
-        id: row.id,
-        tipo_menu: row.tipo_menu,
-        usuario: {
-          nombre: row.usuario_nombre,
-          apellido: row.usuario_apellido || '', // 👈 ahora siempre llega
-          email: row.email,
-          telefono: row.telefono,
-          direccion: row.direccion_principal,
-        },
-        estado: row.status,
-        fecha: row.fecha_entrega,
-        fecha_legible: row.fecha_entrega 
-          ? dayjs(row.fecha_entrega).tz(TZ).format('dddd DD/MM/YYYY') 
-          : null, // 👈 fecha bonita
-        observaciones: row.observaciones,
-        comprobanteUrl: row.comprobante_url,
-        comprobanteNombre: row.comprobante_nombre,
-        nota_admin: row.nota_admin,
-        pedido
-      };
-    });
-
+    const pedidos = await getPedidosConItems(); // ✅ esta función ya está importada arriba
     res.json(pedidos);
   } catch (err) {
     console.error('❌ Error al obtener pedidos completos:', err);
     res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
+
 
 
 
@@ -429,22 +374,20 @@ export const updatePedidoFields = async (req, res) => {
   }
 };
 
+// order.controller.js - FRAGMENTO CORREGIDO
 
 export const updateOrderItemsController = async (req, res) => {
   const client = await pool.connect();
   try {
-    console.log('🔎 req.params:', req.params); 
     const orderId = parseInt(req.params.id, 10);
-    console.log('🔎 orderId calculado:', orderId);
-
     const { items } = req.body;
+    
     if (!items || !Array.isArray(items)) {
       return res.status(400).json({ error: 'Formato inválido de items' });
     }
 
     await client.query('BEGIN');
 
-    // 🔠 Normalizador de día
     const normalizeDia = (d = '') =>
       String(d)
         .split(' ')[0]
@@ -452,103 +395,112 @@ export const updateOrderItemsController = async (req, res) => {
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase();
 
-    const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
-
-    // 📅 Traer orden
+    // 🔥 Obtener fecha_entrega del pedido
     const { rows: [order] } = await client.query(
       'SELECT fecha_entrega FROM orders WHERE id = $1',
       [orderId]
     );
+    
     if (!order) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: `Orden ${orderId} no encontrada` });
     }
 
-    const fechaEntrega = dayjs(order.fecha_entrega).tz('America/Argentina/Buenos_Aires');
+    // 🔥 Eliminar TODOS los items anteriores
+    await client.query('DELETE FROM order_items WHERE order_id = $1', [orderId]);
 
-    // 🗓️ Calcular fecha_dia
-    const calcularFechaDia = (diaTexto) => {
-      const d = normalizeDia(diaTexto);
-      const idx = diasValidos.indexOf(d);
-      if (idx === -1) return null;
-      const lunes = fechaEntrega.startOf('week').add(1, 'day'); 
-      return lunes.add(idx, 'day').startOf('day').toDate();
-    };
+    let inserted = 0;
 
-    // 📥 Items actuales
-    const { rows: existentes } = await client.query(
-      'SELECT id, item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1',
+    // 🔥 Insertar TODOS los items nuevos
+    for (const it of items) {
+      const { item_type, item_id, item_name, quantity, dia, fecha_dia } = it ?? {};
+      
+      if (!item_type || item_id == null || quantity == null) {
+        console.warn('⚠️ Item incompleto, omitido:', it);
+        continue;
+      }
+
+      const cant = Number(quantity);
+      if (isNaN(cant) || cant <= 0) {
+        console.warn('⚠️ Cantidad inválida, omitido:', it);
+        continue;
+      }
+
+      // 🔥 Parsear fecha_dia si viene como string
+      let fechaDiaFinal = null;
+      if (fecha_dia) {
+        const parsed = dayjs(fecha_dia);
+        if (parsed.isValid()) {
+          fechaDiaFinal = parsed.toDate();
+        }
+      }
+
+      // 🔥 Si no viene fecha_dia pero sí dia, calcular desde fecha_entrega
+      if (!fechaDiaFinal && dia) {
+        const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+        const diaNorm = normalizeDia(dia);
+        const idx = diasValidos.indexOf(diaNorm);
+        
+        if (idx !== -1) {
+          const fechaBase = dayjs(order.fecha_entrega).tz('America/Argentina/Buenos_Aires');
+          const lunes = fechaBase.startOf('week').add(1, 'day');
+          fechaDiaFinal = lunes.add(idx, 'day').startOf('day').toDate();
+        }
+      }
+
+      // 🔥 Determinar nombre final
+      let nombreFinal = item_name;
+      if (!nombreFinal) {
+        if (item_type === 'tarta') {
+          const res = await client.query(
+            'SELECT nombre FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1',
+            [item_id]
+          );
+          nombreFinal = res.rows[0]?.nombre || String(item_id);
+        } else {
+          nombreFinal = `ID:${item_id}`;
+        }
+      }
+
+      // 🔥 Insertar item
+      await client.query(`
+        INSERT INTO order_items (
+          order_id, item_type, item_id, item_name, quantity, dia, fecha_dia, precio_unitario
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        orderId,
+        item_type,
+        item_id,
+        nombreFinal,
+        cant,
+        dia ? normalizeDia(dia) : null,
+        fechaDiaFinal,
+        it.precio_unitario ?? null
+      ]);
+
+      inserted++;
+    }
+
+    // 🔥 Recalcular total
+    const { rows: nuevosItems } = await client.query(
+      'SELECT item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1',
       [orderId]
     );
 
-    const keyOf = (t, id) => `${t}-${String(id)}`;
-    const mapaExistentes = new Map(existentes.map(e => [keyOf(e.item_type, e.item_id), e]));
-
-    let updated = 0, inserted = 0, deleted = 0;
-
-    // 🔄 Upsert
-    for (const it of items) {
-      const { item_type, item_id, item_name, quantity, dia, precio_unitario } = it ?? {};
-      if (!item_type || item_id == null || dia == null || quantity == null) continue;
-
-      const diaNorm = normalizeDia(dia);
-      const fecha_dia = calcularFechaDia(diaNorm);
-      if (!fecha_dia) continue;
-
-      const k = keyOf(item_type, item_id);
-      const existente = mapaExistentes.get(k);
-
-      if (existente) {
-        // ✅ Comparar con Number()
-        const cambioCantidad = Number(existente.quantity) !== Number(quantity);
-        const cambioDia = normalizeDia(existente.dia || '') !== diaNorm;
-
-        if (cambioCantidad || cambioDia) {
-          await client.query(
-            `UPDATE order_items
-             SET quantity = $1,
-                 dia = $2,
-                 fecha_dia = $3,
-                 item_name = COALESCE($4, item_name),
-                 precio_unitario = COALESCE($5, precio_unitario)
-             WHERE id = $6`,
-            [Number(quantity), diaNorm, fecha_dia, item_name ?? null, precio_unitario ?? null, existente.id]
-          );
-          updated++;
-        }
-
-        mapaExistentes.delete(k);
-      } else {
-        // 🆕 Insertar
-        await client.query(
-          `INSERT INTO order_items
-             (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario, fecha_dia)
-           VALUES ($1,       $2,        $3,      $4,        $5,      $6,   $7,              $8)`,
-          [
-            orderId,
-            item_type,
-            item_id,
-            item_name ?? `ID:${item_id}`,
-            Number(quantity),
-            diaNorm,
-            precio_unitario ?? null,
-            fecha_dia
-          ]
-        );
-        inserted++;
-      }
-    }
-
-    // 🗑️ Eliminar los que no vinieron
-    for (const restante of mapaExistentes.values()) {
-      await client.query('DELETE FROM order_items WHERE id = $1', [restante.id]);
-      deleted++;
-    }
+    const nuevoTotal = await calcularTotalPedido(nuevosItems);
+    await client.query('UPDATE orders SET total = $1 WHERE id = $2', [nuevoTotal, orderId]);
 
     await client.query('COMMIT');
 
-    console.log('✅ Resumen update-items:', { orderId, updated, inserted, deleted });
-    return res.json({ success: true, resumen: { updated, inserted, deleted } });
+    // 🔥 Obtener pedido actualizado
+    const pedidoActualizado = await getPedidoConItemsById(orderId);
+
+    return res.json({
+      success: true,
+      resumen: { orderId, inserted, nuevoTotal },
+      pedido: pedidoActualizado
+    });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -558,7 +510,6 @@ export const updateOrderItemsController = async (req, res) => {
     client.release();
   }
 };
-
 
 
 

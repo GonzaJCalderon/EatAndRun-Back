@@ -11,7 +11,8 @@ import {
   getSemanasDisponiblesParaPedidosController,
   eliminarSemanaSiNoTienePedidos,
   crearSemanaPuraController,
-  getSemanaProximaController
+  getSemanaProximaController,
+  getTodasLasSemanasController
 } from '../controllers/menu.controller.js'; // ✅ Asegurate que el path es correcto
 
 const router = express.Router();
@@ -26,6 +27,8 @@ router.get('/activas', getSemanasHabilitadasController);
 
 // ✅ SEMANAS DISPONIBLES PARA PEDIDOS
 router.get('/disponibles', getSemanasDisponiblesParaPedidosController);
+
+router.get('/todas', getTodasLasSemanasController);
 
 // ➕ CREAR NUEVA SEMANA (o PUT si ya existe)
 router.post('/', putSemana);

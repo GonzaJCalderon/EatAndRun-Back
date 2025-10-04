@@ -508,3 +508,29 @@ export const crearSemanaPuraController = async (req, res) => {
     res.status(500).json({ error: 'Error interno al crear semana' });
   }
 };
+
+export const getTodasLasSemanasController = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, semana_inicio, semana_fin, habilitado, dias_habilitados, cierre
+      FROM menu_semana
+      ORDER BY semana_inicio DESC
+    `);
+
+    // normalizar fechas igual que en otros controllers
+    const semanas = rows.map(s => ({
+      ...s,
+      semana_inicio: toDateOnly(s.semana_inicio),
+      semana_fin: toDateOnly(s.semana_fin),
+      cierre: s.cierre ? toDateOnly(s.cierre) : null,
+      dias_habilitados: typeof s.dias_habilitados === 'object'
+        ? s.dias_habilitados
+        : JSON.parse(s.dias_habilitados || '{}')
+    }));
+
+    res.json({ semanas });
+  } catch (error) {
+    console.error("❌ Error al obtener todas las semanas:", error);
+    res.status(500).json({ error: "Error al obtener todas las semanas" });
+  }
+};

@@ -53,7 +53,15 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 
 export const createOrderController = async (req, res) => {
 const { items, observaciones, metodoPago } = req.body;
-const fecha_entrega = req.body.fecha_entrega || req.body.fecha_Entrega;
+const raw_fecha_entrega = 
+  req.body.fecha_entrega || 
+  req.body.fecha_Entrega || 
+  req.body.fecha_entrega_tartas;
+
+if (!raw_fecha_entrega) {
+  return res.status(400).json({ error: 'Falta la fecha de entrega' });
+}
+
 
   
   const userId = req.user.id;

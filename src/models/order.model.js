@@ -77,35 +77,57 @@ export const createOrder = async (userId, items, total, {
     // 🔥 CAMBIO AQUÍ: extraer solo el día antes de normalizar
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
-    for (const item of items || []) {
-      if (!item.dia) {
-        itemsFiltrados.push(item);
-        continue;
-      }
-      
-      // Extraer solo el día del formato "viernes-2025-10-03"
-      const diaParts = String(item.dia).split('-');
-      const diaNorm = normalizeDia(diaParts[0]); // solo "viernes"
-      
-      if (!DIAS_VALIDOS.includes(diaNorm)) continue;
-      if (!diasHabilitados[diaNorm]) continue;
-      
-      itemsFiltrados.push({ ...item, dia: diaNorm });
-    }
+   for (const item of items || []) {
+  if (!item.dia) {
+    itemsFiltrados.push(item);
+    continue;
+  }
 
-    const orderInsert = await client.query(`
-      INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id
-    `, [
-      userId,
-      total,
-      fechaEntregaFinal,
-      observaciones || '',
-      metodoPago || null,
-      tipoMenu || 'usuario',
-      comprobanteUrl || null
-    ]);
+  const diaParts = String(item.dia).split('-');
+  const diaTexto = diaParts[0];
+  const diaNorm = normalizeDia(diaTexto); // solo "viernes"
+
+  if (!DIAS_VALIDOS.includes(diaNorm)) continue;
+  if (!diasHabilitados[diaNorm]) continue;
+
+  // ✅ no sobreescribas .dia
+  itemsFiltrados.push(item);
+}
+let fechaEntregaTartas = null;
+
+for (const item of items || []) {
+  if (item.item_type === 'tarta') {
+    const partes = String(item.dia || '').split('-');
+    if (partes.length === 4) {
+      const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
+      const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').startOf('day');
+      if (fechaParseada.isValid()) {
+        fechaEntregaTartas = fechaParseada.toDate();
+      }
+    }
+  }
+}
+
+
+ const orderInsert = await client.query(`
+  INSERT INTO orders (
+    user_id, total, fecha_entrega, observaciones,
+    metodo_pago, tipo_menu, comprobante_url,
+    fecha_entrega_tartas
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  RETURNING id
+`, [
+  userId,
+  total,
+  fechaEntregaFinal,
+  observaciones || '',
+  metodoPago || null,
+  tipoMenu || 'usuario',
+  comprobanteUrl || null,
+  fechaEntregaTartas  // ✅ nueva columna
+]);
+
 
     const orderId = orderInsert.rows[0].id;
 
@@ -129,14 +151,29 @@ export const createOrder = async (userId, items, total, {
 
       let fechaDia = null;
       let diaFinal = null;
-      if (dia) {
-        const diaNormalizado = normalizeDia(dia?.split?.('-')?.[0] || '');
-        const index = DIAS_VALIDOS.indexOf(diaNormalizado);
-        if (index !== -1) {
-          fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day').toDate();
-          diaFinal = diaNormalizado;
-        }
-      }
+    if (dia) {
+  const partes = dia.split('-');
+  const diaTexto = partes[0];
+  const diaNormalizado = normalizeDia(diaTexto);
+
+  // Intenta obtener la fecha exacta del string
+  if (partes.length === 4) {
+    const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
+    const fechaParseada = dayjs(fechaTexto).startOf('day');
+    if (fechaParseada.isValid()) {
+      fechaDia = fechaParseada.toDate();
+    }
+  }
+
+  // Si no tiene formato de fecha, calcula desde semana
+  if (!fechaDia && DIAS_VALIDOS.includes(diaNormalizado)) {
+    const index = DIAS_VALIDOS.indexOf(diaNormalizado);
+    fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day').toDate();
+  }
+
+  diaFinal = diaNormalizado;
+}
+
 
       let finalItemId = null;
       let finalItemName = null;

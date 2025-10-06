@@ -5,13 +5,15 @@ import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
 import isBetween from 'dayjs/plugin/isBetween.js';
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'; // ⬅️ NUEVO
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js'; // ⬅️ AGREGA ESTO
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(isoWeek);
 dayjs.extend(isBetween);
-dayjs.extend(isSameOrBefore); // ⬅️ NUEVO
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter); // ⬅️ Y AGREGA ESTO
 dayjs.locale('es');
 
 export const TZ = 'America/Argentina/Buenos_Aires';

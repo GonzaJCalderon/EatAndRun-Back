@@ -1,9 +1,8 @@
 import dayjs from './tiempo.js';
 
-export function filtrarSemanasPorDiaActual(semanas) {
+export const filtrarSemanasPorDiaActual = (semanas, max = 2) => {
   const hoy = dayjs();
 
-  // Filtrar semanas que todavía no cerraron
   const disponibles = semanas.filter(s => {
     const cierre = s.cierre
       ? dayjs(s.cierre)
@@ -11,6 +10,5 @@ export function filtrarSemanasPorDiaActual(semanas) {
     return hoy.isSameOrBefore(cierre.endOf('day'));
   });
 
-  // Mostrar siempre hasta 2 semanas si existen
-  return disponibles.slice(0, 2);
-}
+  return disponibles.slice(0, max);
+};

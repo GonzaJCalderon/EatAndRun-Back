@@ -618,6 +618,7 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
  const pedidosRes = await pool.query(`
   SELECT 
     o.*,
+    o.fecha_entrega_tartas,
     o.nota_admin,
     u.name      AS usuario_nombre,
     u.email     AS usuario_email,
@@ -723,27 +724,29 @@ const itemsRes = await pool.query(`
     pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
 
     return {
-      ...pedido,
-      usuario: {
-        nombre: pedido.usuario_nombre,
-        apellido: pedido.usuario_apellido || '',
-        email: pedido.usuario_email,
-        telefono: pedido.usuario_telefono || '',
-        direccion: pedido.direccion_principal || '',
-        direccionSecundaria: pedido.direccion_secundaria || '',
-        rol: pedido.usuario_rol
-      },
-      empresa_nombre: pedido.empresa_nombre || null,
-      repartidor: pedido.repartidor_nombre || null,
-      pedido: pedidoAgrupado,
-      estado: pedido.status,
-      fecha: pedido.fecha_entrega,
-      observaciones: pedido.observaciones,
-      nota_admin: pedido.nota_admin || null,
-      comprobanteUrl: pedido.comprobante_url,
-      comprobanteNombre: pedido.comprobante_nombre,
-      tipo_menu: pedido.tipo_menu || 'usuario'
-    };
+  ...pedido,
+  usuario: {
+    nombre: pedido.usuario_nombre,
+    apellido: pedido.usuario_apellido || '',
+    email: pedido.usuario_email,
+    telefono: pedido.usuario_telefono || '',
+    direccion: pedido.direccion_principal || '',
+    direccionSecundaria: pedido.direccion_secundaria || '',
+    rol: pedido.usuario_rol
+  },
+  empresa_nombre: pedido.empresa_nombre || null,
+  repartidor: pedido.repartidor_nombre || null,
+  pedido: pedidoAgrupado,
+  estado: pedido.status,
+  fecha: pedido.fecha_entrega,
+  fecha_entrega_tartas: pedido.fecha_entrega_tartas, // ✅ esta es la línea que necesitás
+  observaciones: pedido.observaciones,
+  nota_admin: pedido.nota_admin || null,
+  comprobanteUrl: pedido.comprobante_url,
+  comprobanteNombre: pedido.comprobante_nombre,
+  tipo_menu: pedido.tipo_menu || 'usuario'
+};
+
   });
  
   return pedidosConItems;

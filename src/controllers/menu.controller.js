@@ -392,17 +392,12 @@ export const getSemanasDisponiblesParaPedidosController = async (req, res) => {
     const result = await pool.query(`
       SELECT id, semana_inicio, semana_fin, inicio_toma_pedidos, habilitado, cierre, dias_habilitados
       FROM menu_semana
-      WHERE inicio_toma_pedidos IS NOT NULL
-        AND inicio_toma_pedidos <= CURRENT_DATE
-        AND cierre >= CURRENT_DATE
-        AND habilitado = true
+      WHERE habilitado = true
+        AND (cierre IS NULL OR cierre >= CURRENT_DATE)
       ORDER BY semana_inicio ASC
     `);
 
-    // ⬅️ Agregalo acá
-    console.log("🔍 Todas las semanas habilitadas y abiertas:", result.rows.map(s => s.semana_inicio));
-
-    const semanas = result.rows.map(s => ({
+    const rawSemanas = result.rows.map(s => ({
       ...s,
       semana_inicio: toDateOnly(s.semana_inicio),
       semana_fin: toDateOnly(s.semana_fin),
@@ -412,14 +407,26 @@ export const getSemanasDisponiblesParaPedidosController = async (req, res) => {
         : JSON.parse(s.dias_habilitados || '{}'),
     }));
 
-    const filtradas = filtrarSemanasPorDiaActual(semanas);
+    // 🧠 Tomar solo las próximas 2 semanas que empiezan hoy o después
+    const hoy = dayjs().startOf('day');
+    const disponibles = rawSemanas.filter(s => {
+      const inicio = dayjs(s.semana_inicio, 'YYYY-MM-DD');
+      const cierre = s.cierre ? dayjs(s.cierre, 'YYYY-MM-DD').endOf('day') : null;
+      const noCerro = !cierre || hoy.isSameOrBefore(cierre);
+      return inicio.isSameOrAfter(hoy) && noCerro;
+    });
 
-    return res.json({ semanas: filtradas });
+    const seleccionadas = disponibles.slice(0, 2);
+
+    console.log('🔍 Semanas habilitadas y futuras:', seleccionadas.map(s => s.semana_inicio));
+
+    return res.json({ semanas: seleccionadas });
   } catch (error) {
     console.error('❌ Error al obtener semanas con pedidos disponibles:', error);
     return res.status(500).json({ error: 'Error interno al obtener semanas disponibles' });
   }
 };
+
 
 
 

@@ -2,9 +2,14 @@
 import { pool } from '../db/index.js';
 
 export const getAllTartas = async () => {
-  const result = await pool.query('SELECT * FROM tartas ORDER BY id ASC');
-  return result.rows;
+  const { rows } = await pool.query(`
+    SELECT id, nombre, precio
+    FROM tartas
+    ORDER BY nombre ASC
+  `);
+  return rows;
 };
+
 
 export const createTarta = async ({ key, nombre, descripcion = '', img = '', precio = 0 }) => {
   if (!key?.trim() || !nombre?.trim()) {

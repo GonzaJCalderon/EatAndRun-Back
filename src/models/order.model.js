@@ -27,141 +27,100 @@ export const createOrder = async (userId, items, total, {
 
     console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
 
+    // ✅ Validamos que existan semanas activas
     const semanasActivas = await getSemanasActivas();
     if (!semanasActivas.length) {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
     }
 
-    let candidata = null;
-    let semanaSel = null;
-    let mondayOfWeek = null;
-
-    if (fechaEntrega) {
-      const f = dayjs(fechaEntrega).tz(TZ);
-      if (!f.isValid()) throw new Error(`fechaEntrega inválida: ${fechaEntrega}`);
-      candidata = f.startOf('day');
-
-        // 🛠️ Si hay platos con fecha explícita, usar la más temprana como fecha_entrega
-  const fechasPlatos = items
-    .filter(i => ['daily', 'fijo', 'especial', 'company'].includes(i.item_type))
-    .map(i => {
-      const partes = String(i.dia || '').split('-');
-      if (partes.length === 4) {
-        const [_, y, m, d] = partes;
-        const fecha = dayjs(`${y}-${m}-${d}`, 'YYYY-MM-DD').tz(TZ);
-        return fecha.isValid() ? fecha : null;
-      }
-      return null;
-    })
-    .filter(Boolean);
-
-  if (fechasPlatos.length) {
-    const fechaMinima = fechasPlatos.reduce((a, b) => a.isBefore(b) ? a : b);
-    candidata = fechaMinima.startOf('day');
-    console.log('📆 Sobrescribiendo fechaEntrega con día de plato:', candidata.format('YYYY-MM-DD'));
-  }
-
-      semanaSel = semanasActivas.find(s =>
-        candidata.isBetween(
-          dayjs(s.semana_inicio).startOf('day'),
-          dayjs(s.semana_fin).endOf('day'),
-          'day',
-          '[]'
-        )
-      );
-
-      if (!semanaSel) {
-        throw new Error(`No hay configuración para la semana del ${candidata.format('YYYY-MM-DD')}`);
-      }
-
-      const base = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
-      mondayOfWeek = base.isoWeekday(1);
-    } else {
-      const firstActive = semanasActivas[0];
-      semanaSel = firstActive;
-
-      const base = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
-      mondayOfWeek = base.isoWeekday(1);
-
-      const itemConDia = (items || []).find(it => DIAS_VALIDOS.includes(normalizeDia(it.dia)));
-      if (itemConDia) {
-        const diaNorm = normalizeDia(itemConDia.dia);
-        const idx = DIAS_VALIDOS.indexOf(diaNorm);
-        const fechaDia = mondayOfWeek.add(idx, 'day').startOf('day');
-        candidata = fechaDia;
-      } else {
-        candidata = mondayOfWeek;
-      }
+    // ✅ La fecha de entrega se toma DIRECTAMENTE desde el frontend
+    if (!fechaEntrega) {
+      throw new Error('No se recibió fechaEntrega desde el frontend');
     }
 
-    const fechaEntregaFinal = candidata.hour(12).minute(0).second(0).millisecond(0).toDate();
+    let candidata = dayjs(fechaEntrega).tz(TZ);
+    if (!candidata.isValid()) {
+      throw new Error(`fechaEntrega inválida: ${fechaEntrega}`);
+    }
 
-    // 🔥 EXTRAER FECHA DE ENTREGA DE TARTAS ANTES DE FILTRAR
+    candidata = candidata.startOf('day');
+    console.log('📅 Fecha de entrega elegida por el usuario:', candidata.format('YYYY-MM-DD'));
+
+    // ✅ Detectamos cuál semana corresponde a esa fecha
+    const semanaSel = semanasActivas.find(s =>
+      candidata.isBetween(
+        dayjs(s.semana_inicio).startOf('day'),
+        dayjs(s.semana_fin).endOf('day'),
+        'day',
+        '[]'
+      )
+    );
+
+    if (!semanaSel) {
+      throw new Error(`No hay configuración para la semana del ${candidata.format('YYYY-MM-DD')}`);
+    }
+
+    const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+
+    // ✅ La fecha final de entrega es tal cual la que envió el usuario
+    const fechaEntregaFinal = candidata.toDate();
+
+    // 🔥 EXTRA: detectar fechaEntrega de tartas si trae `dia` con fecha
     let fechaEntregaTartas = null;
     for (const item of items || []) {
       if (item.item_type === 'tarta' && item.dia) {
-        const partes = String(item.dia).split('-');
-        
-        // Formato esperado: "viernes-2025-10-17" o "tartas-2025-10-17"
+        const partes = String(item.dia).split('-'); // ej: "tartas-2025-10-20"
         if (partes.length === 4) {
           const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-          const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
-          
-          if (fechaParseada.isValid()) {
-            fechaEntregaTartas = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
+          const parseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
+          if (parseada.isValid()) {
+            fechaEntregaTartas = parseada.startOf('day').toDate();
             console.log('🥧 Fecha entrega tartas detectada:', fechaEntregaTartas);
-            break; // Solo necesitamos la primera
+            break;
           }
         }
       }
     }
 
-    // 🔥 FILTRAR ITEMS POR DÍAS HABILITADOS
+    // ✅ Filtrar items según días habilitados
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
 
     for (const item of items || []) {
-      // ✅ Las tartas siempre pasan (no dependen de días habilitados)
       if (item.item_type === 'tarta') {
         itemsFiltrados.push(item);
         continue;
       }
-
-      // ✅ Items sin día también pasan
       if (!item.dia) {
         itemsFiltrados.push(item);
         continue;
       }
 
-      // 🔍 Validar solo el día textual (antes del guion)
-      const diaParts = String(item.dia).split('-');
-      const diaTexto = diaParts[0];
+      const diaTexto = String(item.dia).split('-')[0];
       const diaNorm = normalizeDia(diaTexto);
 
       if (!DIAS_VALIDOS.includes(diaNorm)) {
         console.warn(`⚠️ Día inválido, se omite: ${item.dia}`);
         continue;
       }
-
       if (!diasHabilitados[diaNorm]) {
         console.warn(`⚠️ Día no habilitado, se omite: ${diaNorm}`);
         continue;
       }
 
-      // ✅ Item válido
       itemsFiltrados.push(item);
     }
 
     console.log(`✅ Items filtrados: ${itemsFiltrados.length} de ${items?.length || 0}`);
 
-    // 🔥 INSERTAR ORDEN CON FECHA_ENTREGA_TARTAS
+    // ✅ Insertar orden
     const orderInsert = await client.query(`
       INSERT INTO orders (
         user_id, total, fecha_entrega, observaciones,
         metodo_pago, tipo_menu, comprobante_url,
         fecha_entrega_tartas
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING id
     `, [
       userId,
@@ -177,144 +136,72 @@ export const createOrder = async (userId, items, total, {
     const orderId = orderInsert.rows[0].id;
     console.log(`📦 Orden creada con ID: ${orderId}`);
 
-    // 🔥 FILTRAR ITEMS PARA INSERTAR
+    // ✅ Insertar items
     const itemsParaInsertar = itemsFiltrados.filter(item => {
-      const tipo = String(item.item_type || '').trim().toLowerCase();
-      if (tipo === 'skip') return false;
-      
+      const tipo = String(item.item_type).trim().toLowerCase();
       const qty = parseInt(item.quantity);
-      return !isNaN(qty) && qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
+      return qty > 0 && ['daily','fijo','extra','tarta','especial','company'].includes(tipo);
     });
 
-    console.log(`📝 Items a insertar: ${itemsParaInsertar.length}`);
-
-    // 🔥 INSERTAR CADA ITEM
     for (const item of itemsParaInsertar) {
-      const { item_id, quantity, dia, precio } = item;
-      const tipo = String(item.item_type || '').trim().toLowerCase();
-
-      if (!['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo)) {
-        console.warn(`⚠️ Tipo de item no válido, se omite: ${item.item_type}`);
-        continue;
-      }
-
       let fechaDia = null;
       let diaFinal = null;
+      const tipo = item.item_type.toLowerCase();
 
-      if (dia) {
-        const partes = dia.split('-');
+      if (item.dia) {
+        const partes = item.dia.split('-');
         const diaTexto = partes[0];
-        const diaNormalizado = normalizeDia(diaTexto);
+        const diaNorm = normalizeDia(diaTexto);
 
-        // 🗓️ Intenta obtener la fecha exacta del string
         if (partes.length === 4) {
           const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-          const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
-          
-          if (fechaParseada.isValid()) {
-            fechaDia = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
+          const parsed = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
+          if (parsed.isValid()) {
+            fechaDia = parsed.startOf('day').toDate();
           }
         }
-
-        // 🗓️ Si no tiene formato de fecha, calcula desde semana
-        if (!fechaDia && DIAS_VALIDOS.includes(diaNormalizado)) {
-          const index = DIAS_VALIDOS.indexOf(diaNormalizado);
-          fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day')
-            .hour(12).minute(0).second(0).millisecond(0).toDate();
+        if (!fechaDia && DIAS_VALIDOS.includes(diaNorm)) {
+          const index = DIAS_VALIDOS.indexOf(diaNorm);
+          fechaDia = mondayOfWeek.add(index, 'day').toDate();
         }
-
-        diaFinal = diaNormalizado;
+        diaFinal = diaNorm;
       }
 
       let finalItemId = null;
       let finalItemName = null;
 
-      // 🥧 MANEJO DE TARTAS
       if (tipo === 'tarta') {
-        finalItemName = String(item_id ?? 'Tarta sin nombre');
-        // Para tartas, item_id es el nombre, no un número
-        finalItemId = null;
+        finalItemName = String(item.item_id);
+      } else {
+        finalItemId = parseInt(item.item_id) || null;
+        finalItemName = String(item.item_name || `ID:${item.item_id}`);
       }
 
-      // 🍽️ MANEJO DE PLATOS (daily, fijo, extra, especial)
-      if (['daily', 'fijo', 'extra', 'especial'].includes(tipo)) {
-        finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
-        
-        const tabla = {
-          daily: 'menu_daily',
-          fijo: 'menu_fixed',
-          extra: 'menu_extras',
-          especial: 'menu_especiales'
-        }[tipo];
-
-        if (tabla && finalItemId !== null) {
-          try {
-            const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
-            finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
-          } catch (err) {
-            console.error(`❌ Error obteniendo nombre de ${tabla}:`, err.message);
-            finalItemName = `ID:${finalItemId}`;
-          }
-        }
-      }
-
-      // 🏢 MANEJO DE COMPANY
-      if (tipo === 'company') {
-        finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
-        if (finalItemId !== null) {
-          try {
-            const res = await client.query(`SELECT name FROM menu_company WHERE id = $1`, [finalItemId]);
-            finalItemName = res.rows[0]?.name || `Company ${finalItemId}`;
-          } catch (err) {
-            console.error(`❌ Error obteniendo company:`, err.message);
-            finalItemName = `Company ${finalItemId}`;
-          }
-        }
-      }
-
-      if (!finalItemName) {
-        finalItemName = `ID:${item_id}`;
-      }
-
-      // 🔥 INSERTAR ITEM EN order_items
-      try {
-        await client.query(`
-          INSERT INTO order_items (
-            order_id, item_type, item_id, item_name, quantity, dia, precio_unitario, fecha_dia
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [
-          orderId,
-          tipo,
-          finalItemId,
-          finalItemName,
-          Number(quantity) || 0,
-          diaFinal || null,
-          precio ?? null,
-          fechaDia
-        ]);
-
-        console.log(`✅ Item insertado: ${tipo} - ${finalItemName} x${quantity}${fechaDia ? ` (${dayjs(fechaDia).format('DD/MM/YYYY')})` : ''}`);
-
-      } catch (itemError) {
-        console.error(`❌ Error insertando item ${tipo} - ${item_id}:`, itemError.message);
-        throw new Error(`Error al insertar item ${tipo} - ${item_id}: ${itemError.message}`);
-      }
+      await client.query(`
+        INSERT INTO order_items (
+          order_id, item_type, item_id, item_name,
+          quantity, dia, precio_unitario, fecha_dia
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `, [
+        orderId,
+        tipo,
+        finalItemId,
+        finalItemName,
+        item.quantity,
+        diaFinal,
+        item.precio ?? null,
+        fechaDia
+      ]);
     }
 
     await client.query('COMMIT');
+    console.log(`🎉 Pedido creado exitosamente: orden ${orderId}`);
 
-    console.log(`🎉 Pedido creado exitosamente: orden ${orderId} con ${itemsParaInsertar.length} items`);
-
-    return {
-      id: orderId,
-      message: 'Pedido creado correctamente',
-      cantidadItems: itemsParaInsertar.length
-    };
+    return { id: orderId, message: 'Pedido creado correctamente' };
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('❌ Error al crear la orden en DB:', err);
+    console.error('❌ Error createOrder:', err);
     throw err;
   } finally {
     client.release();

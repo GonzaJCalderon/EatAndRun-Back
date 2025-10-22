@@ -5,9 +5,7 @@ import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechas
 
 // ✅ createOrder con fecha de entrega REAL por ítem
 
-import { pool } from '../db/index.js';
-import dayjs from '../utils/tiempo.js';
-import { getSemanasActivas } from '../models/semanas.model.js';
+
 
 export const createOrder = async (
   userId,

@@ -566,18 +566,19 @@ if (['daily', 'fijo', 'especial', 'company'].includes(tipo)) {
   });
 
 
-  const fechaPorDia = {};
-row.items.forEach(item => {
-  if (item.dia && item.fecha_dia) {
+ const fechaPorDia = {};
+row.items.forEach((item) => {
+  if (item.fecha_dia) {
     const fecha = dayjs(item.fecha_dia);
     if (fecha.isValid()) {
-      const nombreDia = fecha.format('dddd'); // miércoles, jueves, etc.
+      const nombreDia = fecha.format('dddd'); // ej: miércoles
       if (!fechaPorDia[nombreDia]) {
         fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
       }
     }
   }
 });
+pedido.fecha_dia_por_dia = fechaPorDia;
 
   pedido.fecha_dia_por_dia = fechaPorDia;
 

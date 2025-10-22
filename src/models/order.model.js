@@ -25,6 +25,8 @@ export const createOrder = async (userId, items, total, {
   try {
     await client.query('BEGIN');
 
+    console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
+
     const semanasActivas = await getSemanasActivas();
     if (!semanasActivas.length) {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
@@ -74,72 +76,99 @@ export const createOrder = async (userId, items, total, {
 
     const fechaEntregaFinal = candidata.hour(12).minute(0).second(0).millisecond(0).toDate();
 
-    // 🔥 CAMBIO AQUÍ: extraer solo el día antes de normalizar
-    const diasHabilitados = semanaSel.dias_habilitados || {};
-    const itemsFiltrados = [];
-   for (const item of items || []) {
-  if (!item.dia) {
-    itemsFiltrados.push(item);
-    continue;
-  }
-
-  const diaParts = String(item.dia).split('-');
-  const diaTexto = diaParts[0];
-  const diaNorm = normalizeDia(diaTexto); // solo "viernes"
-
-  if (!DIAS_VALIDOS.includes(diaNorm)) continue;
-  if (!diasHabilitados[diaNorm]) continue;
-
-  // ✅ no sobreescribas .dia
-  itemsFiltrados.push(item);
-}
-let fechaEntregaTartas = null;
-
-for (const item of items || []) {
-  if (item.item_type === 'tarta') {
-    const partes = String(item.dia || '').split('-');
-    if (partes.length === 4) {
-      const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-      const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').startOf('day');
-      if (fechaParseada.isValid()) {
-        fechaEntregaTartas = fechaParseada.toDate();
+    // 🔥 EXTRAER FECHA DE ENTREGA DE TARTAS ANTES DE FILTRAR
+    let fechaEntregaTartas = null;
+    for (const item of items || []) {
+      if (item.item_type === 'tarta' && item.dia) {
+        const partes = String(item.dia).split('-');
+        
+        // Formato esperado: "viernes-2025-10-17" o "tartas-2025-10-17"
+        if (partes.length === 4) {
+          const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
+          const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
+          
+          if (fechaParseada.isValid()) {
+            fechaEntregaTartas = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
+            console.log('🥧 Fecha entrega tartas detectada:', fechaEntregaTartas);
+            break; // Solo necesitamos la primera
+          }
+        }
       }
     }
-  }
-}
 
+    // 🔥 FILTRAR ITEMS POR DÍAS HABILITADOS
+    const diasHabilitados = semanaSel.dias_habilitados || {};
+    const itemsFiltrados = [];
 
- const orderInsert = await client.query(`
-  INSERT INTO orders (
-    user_id, total, fecha_entrega, observaciones,
-    metodo_pago, tipo_menu, comprobante_url,
-    fecha_entrega_tartas
-  )
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  RETURNING id
-`, [
-  userId,
-  total,
-  fechaEntregaFinal,
-  observaciones || '',
-  metodoPago || null,
-  tipoMenu || 'usuario',
-  comprobanteUrl || null,
-  fechaEntregaTartas  // ✅ nueva columna
-]);
+    for (const item of items || []) {
+      // ✅ Las tartas siempre pasan (no dependen de días habilitados)
+      if (item.item_type === 'tarta') {
+        itemsFiltrados.push(item);
+        continue;
+      }
 
+      // ✅ Items sin día también pasan
+      if (!item.dia) {
+        itemsFiltrados.push(item);
+        continue;
+      }
+
+      // 🔍 Validar solo el día textual (antes del guion)
+      const diaParts = String(item.dia).split('-');
+      const diaTexto = diaParts[0];
+      const diaNorm = normalizeDia(diaTexto);
+
+      if (!DIAS_VALIDOS.includes(diaNorm)) {
+        console.warn(`⚠️ Día inválido, se omite: ${item.dia}`);
+        continue;
+      }
+
+      if (!diasHabilitados[diaNorm]) {
+        console.warn(`⚠️ Día no habilitado, se omite: ${diaNorm}`);
+        continue;
+      }
+
+      // ✅ Item válido
+      itemsFiltrados.push(item);
+    }
+
+    console.log(`✅ Items filtrados: ${itemsFiltrados.length} de ${items?.length || 0}`);
+
+    // 🔥 INSERTAR ORDEN CON FECHA_ENTREGA_TARTAS
+    const orderInsert = await client.query(`
+      INSERT INTO orders (
+        user_id, total, fecha_entrega, observaciones,
+        metodo_pago, tipo_menu, comprobante_url,
+        fecha_entrega_tartas
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id
+    `, [
+      userId,
+      total,
+      fechaEntregaFinal,
+      observaciones || '',
+      metodoPago || null,
+      tipoMenu || 'usuario',
+      comprobanteUrl || null,
+      fechaEntregaTartas
+    ]);
 
     const orderId = orderInsert.rows[0].id;
+    console.log(`📦 Orden creada con ID: ${orderId}`);
 
+    // 🔥 FILTRAR ITEMS PARA INSERTAR
     const itemsParaInsertar = itemsFiltrados.filter(item => {
       const tipo = String(item.item_type || '').trim().toLowerCase();
       if (tipo === 'skip') return false;
+      
       const qty = parseInt(item.quantity);
       return !isNaN(qty) && qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
     });
 
-    console.log(`Items a insertar: ${itemsParaInsertar.length} de ${itemsFiltrados.length}`);
+    console.log(`📝 Items a insertar: ${itemsParaInsertar.length}`);
 
+    // 🔥 INSERTAR CADA ITEM
     for (const item of itemsParaInsertar) {
       const { item_id, quantity, dia, precio } = item;
       const tipo = String(item.item_type || '').trim().toLowerCase();
@@ -151,38 +180,43 @@ for (const item of items || []) {
 
       let fechaDia = null;
       let diaFinal = null;
-    if (dia) {
-  const partes = dia.split('-');
-  const diaTexto = partes[0];
-  const diaNormalizado = normalizeDia(diaTexto);
 
-  // Intenta obtener la fecha exacta del string
-  if (partes.length === 4) {
-    const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-    const fechaParseada = dayjs(fechaTexto).startOf('day');
-    if (fechaParseada.isValid()) {
-      fechaDia = fechaParseada.toDate();
-    }
-  }
+      if (dia) {
+        const partes = dia.split('-');
+        const diaTexto = partes[0];
+        const diaNormalizado = normalizeDia(diaTexto);
 
-  // Si no tiene formato de fecha, calcula desde semana
-  if (!fechaDia && DIAS_VALIDOS.includes(diaNormalizado)) {
-    const index = DIAS_VALIDOS.indexOf(diaNormalizado);
-    fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day').toDate();
-  }
+        // 🗓️ Intenta obtener la fecha exacta del string
+        if (partes.length === 4) {
+          const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
+          const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
+          
+          if (fechaParseada.isValid()) {
+            fechaDia = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
+          }
+        }
 
-  diaFinal = diaNormalizado;
-}
+        // 🗓️ Si no tiene formato de fecha, calcula desde semana
+        if (!fechaDia && DIAS_VALIDOS.includes(diaNormalizado)) {
+          const index = DIAS_VALIDOS.indexOf(diaNormalizado);
+          fechaDia = dayjs(mondayOfWeek).add(index, 'day').startOf('day')
+            .hour(12).minute(0).second(0).millisecond(0).toDate();
+        }
 
+        diaFinal = diaNormalizado;
+      }
 
       let finalItemId = null;
       let finalItemName = null;
 
+      // 🥧 MANEJO DE TARTAS
       if (tipo === 'tarta') {
         finalItemName = String(item_id ?? 'Tarta sin nombre');
+        // Para tartas, item_id es el nombre, no un número
+        finalItemId = null;
       }
 
-      // Manejo unificado de daily, fijo, extra, especial
+      // 🍽️ MANEJO DE PLATOS (daily, fijo, extra, especial)
       if (['daily', 'fijo', 'extra', 'especial'].includes(tipo)) {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
         
@@ -198,13 +232,13 @@ for (const item of items || []) {
             const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
             finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
           } catch (err) {
-            console.error(`Error obteniendo nombre de ${tabla}: ${err.message}`);
+            console.error(`❌ Error obteniendo nombre de ${tabla}:`, err.message);
             finalItemName = `ID:${finalItemId}`;
           }
         }
       }
 
-      // Manejo de company
+      // 🏢 MANEJO DE COMPANY
       if (tipo === 'company') {
         finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
         if (finalItemId !== null) {
@@ -212,7 +246,7 @@ for (const item of items || []) {
             const res = await client.query(`SELECT name FROM menu_company WHERE id = $1`, [finalItemId]);
             finalItemName = res.rows[0]?.name || `Company ${finalItemId}`;
           } catch (err) {
-            console.error(`Error obteniendo company: ${err.message}`);
+            console.error(`❌ Error obteniendo company:`, err.message);
             finalItemName = `Company ${finalItemId}`;
           }
         }
@@ -222,6 +256,7 @@ for (const item of items || []) {
         finalItemName = `ID:${item_id}`;
       }
 
+      // 🔥 INSERTAR ITEM EN order_items
       try {
         await client.query(`
           INSERT INTO order_items (
@@ -239,7 +274,7 @@ for (const item of items || []) {
           fechaDia
         ]);
 
-        console.log(`✅ Item insertado: ${tipo} - ${finalItemName} x${quantity}`);
+        console.log(`✅ Item insertado: ${tipo} - ${finalItemName} x${quantity}${fechaDia ? ` (${dayjs(fechaDia).format('DD/MM/YYYY')})` : ''}`);
 
       } catch (itemError) {
         console.error(`❌ Error insertando item ${tipo} - ${item_id}:`, itemError.message);
@@ -249,6 +284,8 @@ for (const item of items || []) {
 
     await client.query('COMMIT');
 
+    console.log(`🎉 Pedido creado exitosamente: orden ${orderId} con ${itemsParaInsertar.length} items`);
+
     return {
       id: orderId,
       message: 'Pedido creado correctamente',
@@ -257,13 +294,12 @@ for (const item of items || []) {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Error al crear la orden en DB:', err);
+    console.error('❌ Error al crear la orden en DB:', err);
     throw err;
   } finally {
     client.release();
   }
 };
-
 
 
 

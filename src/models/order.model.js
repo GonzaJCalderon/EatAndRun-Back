@@ -3,9 +3,7 @@ import dayjs from '../utils/tiempo.js';
 import { getSemanasActivas } from '../models/semanas.model.js';
 import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechaspedidos.js';
 
-// ✅ createOrder con fecha de entrega REAL por ítem
-
-
+// ✅ createOrder con fecha REAL por ítem (platos + tartas
 
 export const createOrder = async (
   userId,
@@ -15,21 +13,21 @@ export const createOrder = async (
 ) => {
   const client = await pool.connect();
   const TZ = 'America/Argentina/Buenos_Aires';
+
   const normalizeDia = (d) =>
     String(d || '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
-  const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
   try {
     await client.query('BEGIN');
 
-    // 1️⃣ Tomamos la fecha más temprana de los ítems
+    // ✅ 1) Tomar la fecha de entrega MÁS CERCANA de los ítems enviados
     const fechasItems = items
       .map((i) => {
         if (!i.dia) return null;
-        const partes = String(i.dia).split('-');
+        const partes = String(i.dia).split('-'); // ej "jueves-2025-10-23"
         if (partes.length === 4) {
           return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
             .tz(TZ)
@@ -40,16 +38,15 @@ export const createOrder = async (
       .filter((f) => f && f.isValid());
 
     if (!fechasItems.length) {
-      throw new Error('No se pudo determinar fecha de entrega desde los ítems');
+      throw new Error('⚠ No se pudo determinar ninguna fecha de entrega');
     }
 
     let fechaEntregaFinal = dayjs.min(...fechasItems);
 
-    // 2️⃣ Buscar semana activa que contenga esa fecha
+    // ✅ 2) Verificar semana activa
     const semanasActivas = await getSemanasActivas();
-    if (!semanasActivas.length) {
-      throw new Error('No hay semanas habilitadas para tomar pedidos');
-    }
+    if (semanasActivas.length === 0)
+      throw new Error('⚠ No hay semanas habilitadas');
 
     let semanaSel = semanasActivas.find((s) =>
       fechaEntregaFinal.isBetween(
@@ -61,32 +58,51 @@ export const createOrder = async (
     );
 
     if (!semanaSel) {
-      const itemConSemana = items.find((i) => i.semana_id);
-      if (itemConSemana) {
-        semanaSel = semanasActivas.find((s) => s.id === itemConSemana.semana_id);
+      const itemSem = items.find((i) => i.semana_id);
+      if (itemSem) {
+        semanaSel = semanasActivas.find((s) => s.id === itemSem.semana_id);
       }
     }
 
     if (!semanaSel) {
-      throw new Error(`No hay configuración para la semana del ${fechaEntregaFinal.format('YYYY-MM-DD')}`);
+      throw new Error(
+        `⚠ La fecha ${fechaEntregaFinal.format('YYYY-MM-DD')} no coincide con ninguna semana habilitada`
+      );
     }
 
-    // 3️⃣ Ajuste solo si está fuera de la semana, pero respetando el valor del ítem
+    // Ajuste adicional si está fuera
     const semanaInicio = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
     const semanaFin = dayjs(semanaSel.semana_fin).tz(TZ).endOf('day');
 
-    if (fechaEntregaFinal.isBefore(semanaInicio)) {
-      fechaEntregaFinal = semanaInicio;
-    }
-    if (fechaEntregaFinal.isAfter(semanaFin)) {
-      fechaEntregaFinal = semanaFin;
-    }
+    if (fechaEntregaFinal.isBefore(semanaInicio)) fechaEntregaFinal = semanaInicio;
+    if (fechaEntregaFinal.isAfter(semanaFin)) fechaEntregaFinal = semanaFin;
 
     const fechaEntregaDate = fechaEntregaFinal.toDate();
-    const mondayOfWeek = semanaInicio;
 
-    // 4️⃣ Inserto en tabla orders
-    const resOrder = await client.query(
+    // ✅ 3) Determinar fecha de entrega de TARTAS (si existen)
+    let fechaEntregaTartas = null;
+    for (const item of items) {
+      if (item.item_type === 'tarta' && item.dia) {
+        const partes = item.dia.split('-'); // ej "tartas-2025-10-20"
+        if (partes.length === 4) {
+          const f = dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+            .tz(TZ)
+            .startOf('day');
+          if (f.isValid()) {
+            fechaEntregaTartas = f.toDate();
+            break;
+          }
+        }
+      }
+    }
+
+    // ⛔ Si el front no puso fecha a la tarta → se entrega el viernes a las 12
+    if (!fechaEntregaTartas && items.some((i) => i.item_type === 'tarta')) {
+      fechaEntregaTartas = semanaInicio.add(4, 'day').hour(12).toDate();
+    }
+
+    // ✅ 4) Insertar orden principal
+    const respOrder = await client.query(
       `
       INSERT INTO orders (
         user_id, total, fecha_entrega, observaciones,
@@ -103,71 +119,72 @@ export const createOrder = async (
         metodoPago || null,
         tipoMenu || 'usuario',
         comprobanteUrl || null,
-        null // se completa si hay tartas
+        fechaEntregaTartas
       ]
     );
 
-    const orderId = resOrder.rows[0].id;
+    const orderId = respOrder.rows[0].id;
 
-    // 5️⃣ Insertar ítems con FECHA EXACTA del front
-    for (const item of items) {
-      let fechaDia = null;
-      let diaFinal = null;
-      const tipo = String(item.item_type || '').toLowerCase();
+    // ✅ 5) Insertar ITEMS (con fecha exacta que seleccionó el usuario)
+   for (const item of items) {
+  let fechaDia = null;
+  let diaFinal = null;
+  const tipo = String(item.item_type || '').toLowerCase();
 
-      if (item.dia) {
-        const partes = item.dia.split('-'); // ej: jueves-2025-10-23
-        const diaTexto = partes[0];
-        const diaNorm = normalizeDia(diaTexto);
+  if (item.fecha_dia) {
+    const f = dayjs(item.fecha_dia).tz(TZ);
+    if (f.isValid()) fechaDia = f.startOf('day').toDate();
+  }
 
-        if (partes.length === 4) {
-          const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-          const parsed = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
-          if (parsed.isValid()) {
-            fechaDia = parsed.startOf('day').toDate();
-          }
-        }
-
-        diaFinal = diaNorm;
-      }
-
-      if (!fechaDia) {
-        // fallback: usar lunes de la semana + offset si no vino fecha
-        const fallbackIndex = DIAS_VALIDOS.indexOf(normalizeDia(item.dia || ''));
-        if (fallbackIndex !== -1) {
-          fechaDia = mondayOfWeek.add(fallbackIndex, 'day').toDate();
-        }
-      }
-
-      await client.query(
-        `
-        INSERT INTO order_items (
-          order_id, item_type, item_id, item_name,
-          quantity, dia, precio_unitario, fecha_dia
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      `,
-        [
-          orderId,
-          tipo,
-          tipo === 'tarta' ? null : Number(item.item_id),
-          tipo === 'tarta' ? String(item.item_id) : String(item.item_name || `ID:${item.item_id}`),
-          Number(item.quantity),
-          diaFinal,
-          item.precio ?? null,
-          fechaDia
-        ]
-      );
+  if (!fechaDia && item.dia) {
+    const partes = item.dia.split('-');
+    if (partes.length === 4) {
+      const parsed = dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`).tz(TZ);
+      if (parsed.isValid()) fechaDia = parsed.startOf('day').toDate();
     }
+  }
+
+  // ✅ Agregá esta parte para asegurar que "dia" se guarda
+  if (!diaFinal && item.dia) {
+    const diaTexto = String(item.dia).split('-')[0];
+    diaFinal = diaTexto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  // ... y luego insertás
+  await client.query(`
+    INSERT INTO order_items (
+      order_id, item_type, item_id, item_name,
+      quantity, dia, precio_unitario, fecha_dia
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  `, [
+    orderId,
+    tipo,
+    tipo === 'tarta' ? null : Number(item.item_id),
+    tipo === 'tarta' ? String(item.item_id) : String(item.item_name || `ID:${item.item_id}`),
+    Number(item.quantity),
+    diaFinal,         // ✅ ahora sí se guarda el día correctamente
+    item.precio ?? null,
+    fechaDia
+  ]);
+}
+
 
     await client.query('COMMIT');
-    return { id: orderId, message: 'Pedido creado correctamente' };
+    return { id: orderId, message: '✅ Pedido creado correctamente' };
   } catch (err) {
     await client.query('ROLLBACK');
+    console.error('❌ Error createOrder:', err);
     throw err;
   } finally {
     client.release();
   }
 };
+
+
 
 
 export const getOrdersByUser = async (userId) => {

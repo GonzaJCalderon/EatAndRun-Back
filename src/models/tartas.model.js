@@ -3,12 +3,13 @@ import { pool } from '../db/index.js';
 
 export const getAllTartas = async () => {
   const { rows } = await pool.query(`
-    SELECT id, nombre, precio
+    SELECT id, nombre, descripcion, img, precio
     FROM tartas
     ORDER BY nombre ASC
   `);
   return rows;
 };
+
 
 
 export const createTarta = async ({ key, nombre, descripcion = '', img = '', precio = 0 }) => {

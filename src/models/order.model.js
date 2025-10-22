@@ -41,6 +41,26 @@ export const createOrder = async (userId, items, total, {
       if (!f.isValid()) throw new Error(`fechaEntrega inválida: ${fechaEntrega}`);
       candidata = f.startOf('day');
 
+        // 🛠️ Si hay platos con fecha explícita, usar la más temprana como fecha_entrega
+  const fechasPlatos = items
+    .filter(i => ['daily', 'fijo', 'especial', 'company'].includes(i.item_type))
+    .map(i => {
+      const partes = String(i.dia || '').split('-');
+      if (partes.length === 4) {
+        const [_, y, m, d] = partes;
+        const fecha = dayjs(`${y}-${m}-${d}`, 'YYYY-MM-DD').tz(TZ);
+        return fecha.isValid() ? fecha : null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+
+  if (fechasPlatos.length) {
+    const fechaMinima = fechasPlatos.reduce((a, b) => a.isBefore(b) ? a : b);
+    candidata = fechaMinima.startOf('day');
+    console.log('📆 Sobrescribiendo fechaEntrega con día de plato:', candidata.format('YYYY-MM-DD'));
+  }
+
       semanaSel = semanasActivas.find(s =>
         candidata.isBetween(
           dayjs(s.semana_inicio).startOf('day'),

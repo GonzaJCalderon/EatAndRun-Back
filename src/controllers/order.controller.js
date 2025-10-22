@@ -82,7 +82,7 @@ for (const i of items) {
     return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
   }
 
-  if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
+  if (i.item_type === 'extra' && (!i.item_id || isNaN(parseInt(i.item_id)))) {
     return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
   }
 

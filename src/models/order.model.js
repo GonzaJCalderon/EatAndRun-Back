@@ -21,29 +21,33 @@ export const createOrder = async (userId, items, total, {
 
   const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
-  try {
-    await client.query('BEGIN');
+try {
+  await client.query('BEGIN');
 
-    console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
+  console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
 
-    const semanasActivas = await getSemanasActivas();
-    if (!semanasActivas.length) {
-      throw new Error('No hay semanas habilitadas para tomar pedidos');
-    }
+  const semanasActivas = await getSemanasActivas();
+  if (!semanasActivas.length) {
+    throw new Error('No hay semanas habilitadas para tomar pedidos');
+  }
 
-   // ✅ Extraer la primera fecha real de entrega desde los ítems
-const fechasItems = items
-  .map(i => {
-    if (!i.dia) return null;
-    const partes = String(i.dia).split('-'); // ej: "miercoles-2025-10-22"
-    if (partes.length === 4) {
-      return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
-        .tz(TZ)
-        .startOf('day');
-    }
-    return null;
-  })
-  .filter(f => f && f.isValid());
+  // ✅ <-- ACA DECLARAMOS ESTA VARIABLE
+  let fechaEntregaFinal = null;
+
+  // ✅ Extraer la primera fecha real de entrega desde los ítems
+  const fechasItems = items
+    .map(i => {
+      if (!i.dia) return null;
+      const partes = String(i.dia).split('-'); // ej: "miercoles-2025-10-22"
+      if (partes.length === 4) {
+        return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+          .tz(TZ)
+          .startOf('day');
+      }
+      return null;
+    })
+    .filter(f => f && f.isValid());
+
 
 // ✅ Si hay fechas de ítems, se toma la más cercana (mínima)
 if (fechasItems.length > 0) {

@@ -48,14 +48,27 @@ export const createOrder = async (userId, items, total, {
     console.log('📅 Fecha de entrega usada tal cual del frontend:', fechaEntregaFinal);
 
     // ✅ Buscar la semana correspondiente usando nombres REALES de columnas
-    const semanaSel = semanasActivas.find(s =>
-      dayjs(fechaEntregaFinal).isBetween(
-        dayjs(s.semana_inicio).startOf('day'),
-        dayjs(s.semana_fin).endOf('day'),
-        'day',
-        '[]'
-      )
-    );
+ let semanaSel = semanasActivas.find(s =>
+  dayjs(fechaEntregaFinal).isBetween(
+    dayjs(s.semana_inicio),
+    dayjs(s.semana_fin),
+    'day',
+    '[]'
+  )
+);
+
+// ✅ Si no la encontró por fecha, intentar por semana_id en items
+if (!semanaSel) {
+  const semanaFromItem = items.find(i => i.semana_id);
+  if (semanaFromItem) {
+    semanaSel = semanasActivas.find(s => s.id === semanaFromItem.semana_id);
+  }
+}
+
+if (!semanaSel) {
+  throw new Error(`No hay configuración para la semana del ${fechaEntrega}`);
+}
+
 
     if (!semanaSel) {
       throw new Error(`No hay configuración para la semana del ${fechaEntrega}`);

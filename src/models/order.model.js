@@ -566,7 +566,8 @@ if (['daily', 'fijo', 'especial', 'company'].includes(tipo)) {
   });
 
 
- const fechaPorDia = {};
+ // ✅ Mapeo correcto de día → fecha real
+const fechaPorDia = {};
 row.items.forEach((item) => {
   if (item.fecha_dia) {
     const fecha = dayjs(item.fecha_dia);
@@ -580,7 +581,6 @@ row.items.forEach((item) => {
 });
 pedido.fecha_dia_por_dia = fechaPorDia;
 
-  pedido.fecha_dia_por_dia = fechaPorDia;
 
     return {
     id: row.id,
@@ -722,18 +722,23 @@ const itemsRes = await pool.query(`
     const items = itemsPorPedido[pedido.id] || [];
 
     // 🗓️ Mapear fechas de entrega por día textual
-    const fechaPorDia = {};
-    for (const item of items) {
-      if (item.dia && item.fecha_dia) {
-        const diaLower = item.dia.toLowerCase();
-        if (!fechaPorDia[diaLower]) {
-          fechaPorDia[diaLower] = dayjs(item.fecha_dia).format('YYYY-MM-DD');
-        }
+   // ✅ Día → fecha real basado en fecha_dia, NO en el string item.dia
+const fechaPorDia = {};
+for (const item of items) {
+  if (item.fecha_dia) {
+    const fecha = dayjs(item.fecha_dia);
+    if (fecha.isValid()) {
+      const nombreDia = fecha.format('dddd'); // martes, miércoles, etc.
+      if (!fechaPorDia[nombreDia]) {
+        fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
       }
     }
+  }
+}
 
-    const pedidoAgrupado = agruparItemsPorTipo(items);
-    pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
+const pedidoAgrupado = agruparItemsPorTipo(items);
+pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
+
 
     return {
   ...pedido,

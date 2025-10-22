@@ -4,7 +4,6 @@ import { getSemanasActivas } from '../models/semanas.model.js';
 import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechaspedidos.js';
 
 
-
 export const createOrder = async (userId, items, total, {
   fechaEntrega,
   observaciones,
@@ -28,43 +27,43 @@ export const createOrder = async (userId, items, total, {
 
     console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
 
-    // 🔎 Validar semanas activas
+    // ✅ Obtener semanas activas correctas desde la DB
     const semanasActivas = await getSemanasActivas();
     if (!semanasActivas.length) {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
     }
 
-    // ✅ Usar fecha exacta del frontend
+    // ✅ Validar fecha de entrega
     if (!fechaEntrega) {
       throw new Error('No se recibió fechaEntrega desde el frontend');
     }
-
     if (!dayjs(fechaEntrega, 'YYYY-MM-DD', true).isValid()) {
       throw new Error(`Fecha de entrega inválida: ${fechaEntrega}`);
     }
 
-    const fechaEntregaFinal = dayjs(fechaEntrega, 'YYYY-MM-DD').tz(TZ).startOf('day').toDate();
+    const fechaEntregaFinal = dayjs(fechaEntrega, 'YYYY-MM-DD')
+      .tz(TZ)
+      .startOf('day')
+      .toDate();
     console.log('📅 Fecha de entrega usada tal cual del frontend:', fechaEntregaFinal);
 
-    // 🔍 Determinar la semana correspondiente
-const semanaSel = semanasActivas.find(s =>
-  dayjs(fechaEntregaFinal).isBetween(
-    dayjs(s.fecha_inicio).startOf('day'),  // ← ahora sí
-    dayjs(s.fecha_fin).endOf('day'),
-    'day',
-    '[]'
-  )
-);
-
+    // ✅ Buscar la semana correspondiente usando nombres REALES de columnas
+    const semanaSel = semanasActivas.find(s =>
+      dayjs(fechaEntregaFinal).isBetween(
+        dayjs(s.semana_inicio).startOf('day'),
+        dayjs(s.semana_fin).endOf('day'),
+        'day',
+        '[]'
+      )
+    );
 
     if (!semanaSel) {
       throw new Error(`No hay configuración para la semana del ${fechaEntrega}`);
     }
 
- const mondayOfWeek = dayjs(semanaSel.fecha_inicio).tz(TZ).startOf('day');
+    const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
 
-
-    // 🥧 Calcular fecha de entrega de tartas (si hay)
+    // 🍰 Calcular fecha de entrega de tartas
     let fechaEntregaTartas = null;
     for (const item of items || []) {
       if (item.item_type === 'tarta' && item.dia) {
@@ -75,30 +74,30 @@ const semanaSel = semanasActivas.find(s =>
           const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
           const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
           if (fechaParseada.isValid()) {
-            fechaEntregaTartas = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
+            fechaEntregaTartas = fechaParseada.hour(12).toDate();
             console.log('🥧 Fecha entrega tartas detectada:', fechaEntregaTartas);
             break;
           }
         }
 
-        // Si sólo viene "tartas"
-        if (partes[0] === 'tartas' && partes.length === 1 && semanaSel) {
+        // Si solo viene "tartas"
+        if (partes[0] === 'tartas' && partes.length === 1) {
           const viernes = mondayOfWeek.add(4, 'day');
-          fechaEntregaTartas = viernes.hour(12).minute(0).second(0).millisecond(0).toDate();
+          fechaEntregaTartas = viernes.hour(12).toDate();
           console.log('🥧 Fecha entrega tartas calculada (viernes):', fechaEntregaTartas);
           break;
         }
       }
     }
 
-    // Si no se detectó pero hay tartas, usar viernes por defecto
-    if (!fechaEntregaTartas && items.some(i => i.item_type === 'tarta') && semanaSel) {
+    // Si hay tartas pero no se detectó fecha → usar viernes
+    if (!fechaEntregaTartas && items.some(i => i.item_type === 'tarta')) {
       const viernes = mondayOfWeek.add(4, 'day');
-      fechaEntregaTartas = viernes.hour(12).minute(0).second(0).millisecond(0).toDate();
+      fechaEntregaTartas = viernes.hour(12).toDate();
       console.log('🥧 Fecha entrega tartas por defecto (viernes):', fechaEntregaTartas);
     }
 
-    // 🧹 Filtrar ítems según días habilitados
+    // 🚫 Filtrar ítems según días habilitados en la semana
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
 
@@ -116,29 +115,20 @@ const semanaSel = semanasActivas.find(s =>
       const diaTexto = String(item.dia).split('-')[0];
       const diaNorm = normalizeDia(diaTexto);
 
-      if (!DIAS_VALIDOS.includes(diaNorm)) {
-        console.warn(`⚠️ Día inválido, se omite: ${item.dia}`);
-        continue;
-      }
-
-      if (!diasHabilitados[diaNorm]) {
-        console.warn(`⚠️ Día no habilitado, se omite: ${diaNorm}`);
-        continue;
-      }
+      if (!DIAS_VALIDOS.includes(diaNorm)) continue;
+      if (!diasHabilitados[diaNorm]) continue;
 
       itemsFiltrados.push(item);
     }
 
     console.log(`✅ Items filtrados: ${itemsFiltrados.length} de ${items?.length || 0}`);
 
-    // 📥 Insertar orden
+    // 🛒 Insertar orden
     const orderInsert = await client.query(`
       INSERT INTO orders (
         user_id, total, fecha_entrega, observaciones,
-        metodo_pago, tipo_menu, comprobante_url,
-        fecha_entrega_tartas
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        metodo_pago, tipo_menu, comprobante_url, fecha_entrega_tartas
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING id
     `, [
       userId,
@@ -152,9 +142,8 @@ const semanaSel = semanasActivas.find(s =>
     ]);
 
     const orderId = orderInsert.rows[0].id;
-    console.log(`📦 Orden creada con ID: ${orderId}`);
 
-    // 📥 Insertar ítems
+    // 🧾 Insertar ítems
     const itemsParaInsertar = itemsFiltrados.filter(item => {
       const tipo = String(item.item_type).trim().toLowerCase();
       const qty = parseInt(item.quantity);
@@ -174,27 +163,14 @@ const semanaSel = semanasActivas.find(s =>
         if (partes.length === 4) {
           const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
           const parsed = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
-          if (parsed.isValid()) {
-            fechaDia = parsed.startOf('day').toDate();
-          }
+          if (parsed.isValid()) fechaDia = parsed.startOf('day').toDate();
         }
 
         if (!fechaDia && DIAS_VALIDOS.includes(diaNorm)) {
           const index = DIAS_VALIDOS.indexOf(diaNorm);
           fechaDia = mondayOfWeek.add(index, 'day').toDate();
         }
-
         diaFinal = diaNorm;
-      }
-
-      let finalItemId = null;
-      let finalItemName = null;
-
-      if (tipo === 'tarta') {
-        finalItemName = String(item.item_id);
-      } else {
-        finalItemId = parseInt(item.item_id) || null;
-        finalItemName = String(item.item_name || `ID:${item.item_id}`);
       }
 
       await client.query(`
@@ -205,8 +181,8 @@ const semanaSel = semanasActivas.find(s =>
       `, [
         orderId,
         tipo,
-        finalItemId,
-        finalItemName,
+        tipo === 'tarta' ? null : parseInt(item.item_id),
+        tipo === 'tarta' ? String(item.item_id) : String(item.item_name || `ID:${item.item_id}`),
         item.quantity,
         diaFinal,
         item.precio ?? null,
@@ -215,7 +191,7 @@ const semanaSel = semanasActivas.find(s =>
     }
 
     await client.query('COMMIT');
-    console.log(`🎉 Pedido creado exitosamente: orden ${orderId}`);
+    console.log('🎉 Pedido creado exitosamente');
 
     return { id: orderId, message: 'Pedido creado correctamente' };
 
@@ -227,7 +203,6 @@ const semanaSel = semanasActivas.find(s =>
     client.release();
   }
 };
-
 
 
 export const getOrdersByUser = async (userId) => {

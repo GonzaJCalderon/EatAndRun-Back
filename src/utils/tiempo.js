@@ -1,4 +1,3 @@
-import minMax from 'dayjs/plugin/minMax.js';
 // src/utils/tiempo.js
 import dayjs from 'dayjs';
 import 'dayjs/locale/es.js';
@@ -8,7 +7,7 @@ import isoWeek from 'dayjs/plugin/isoWeek.js';
 import isBetween from 'dayjs/plugin/isBetween.js';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter.js';
-import minMax from 'dayjs/plugin/minMax.js';   // ✅ IMPORT CORRECTO
+import minMax from 'dayjs/plugin/minMax.js'; // ✅ SOLO UNA VEZ
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -16,7 +15,8 @@ dayjs.extend(isoWeek);
 dayjs.extend(isBetween);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
-dayjs.extend(minMax);  // ✅ AHORA SÍ FUNCIONA
+dayjs.extend(minMax); // ✅ SOLO UNA VEZ, DESPUÉS DEL IMPORT
+
 dayjs.locale('es');
 
 export const TZ = 'America/Argentina/Buenos_Aires';

@@ -13,13 +13,14 @@ export const createOrder = async (userId, items, total, {
   comprobanteUrl = null
 }) => {
   const client = await pool.connect();
-
   const TZ = 'America/Argentina/Buenos_Aires';
+
   const normalizeDia = (d) =>
     String(d || '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
+
   const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
   try {
@@ -27,28 +28,27 @@ export const createOrder = async (userId, items, total, {
 
     console.log('🔍 Items recibidos en createOrder:', JSON.stringify(items, null, 2));
 
-    // ✅ Validamos que existan semanas activas
+    // 🔎 Validar semanas activas
     const semanasActivas = await getSemanasActivas();
     if (!semanasActivas.length) {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
     }
 
-    // ✅ La fecha de entrega se toma DIRECTAMENTE desde el frontend
+    // ✅ Usar fecha exacta del frontend
     if (!fechaEntrega) {
       throw new Error('No se recibió fechaEntrega desde el frontend');
     }
 
-    let candidata = dayjs(fechaEntrega).tz(TZ);
-    if (!candidata.isValid()) {
-      throw new Error(`fechaEntrega inválida: ${fechaEntrega}`);
+    if (!dayjs(fechaEntrega, 'YYYY-MM-DD', true).isValid()) {
+      throw new Error(`Fecha de entrega inválida: ${fechaEntrega}`);
     }
 
-    candidata = candidata.startOf('day');
-    console.log('📅 Fecha de entrega elegida por el usuario:', candidata.format('YYYY-MM-DD'));
+    const fechaEntregaFinal = dayjs(fechaEntrega, 'YYYY-MM-DD').tz(TZ).startOf('day').toDate();
+    console.log('📅 Fecha de entrega usada tal cual del frontend:', fechaEntregaFinal);
 
-    // ✅ Detectamos cuál semana corresponde a esa fecha
+    // 🔍 Determinar la semana correspondiente
     const semanaSel = semanasActivas.find(s =>
-      candidata.isBetween(
+      dayjs(fechaEntregaFinal).isBetween(
         dayjs(s.semana_inicio).startOf('day'),
         dayjs(s.semana_fin).endOf('day'),
         'day',
@@ -57,32 +57,46 @@ export const createOrder = async (userId, items, total, {
     );
 
     if (!semanaSel) {
-      throw new Error(`No hay configuración para la semana del ${candidata.format('YYYY-MM-DD')}`);
+      throw new Error(`No hay configuración para la semana del ${fechaEntrega}`);
     }
 
     const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
 
-    // ✅ La fecha final de entrega es tal cual la que envió el usuario
-    const fechaEntregaFinal = candidata.toDate();
-
-    // 🔥 EXTRA: detectar fechaEntrega de tartas si trae `dia` con fecha
+    // 🥧 Calcular fecha de entrega de tartas (si hay)
     let fechaEntregaTartas = null;
     for (const item of items || []) {
       if (item.item_type === 'tarta' && item.dia) {
-        const partes = String(item.dia).split('-'); // ej: "tartas-2025-10-20"
-        if (partes.length === 4) {
+        const partes = String(item.dia).split('-');
+
+        // Formato: tartas-YYYY-MM-DD
+        if (partes.length === 4 && partes[0] === 'tartas') {
           const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
-          const parseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
-          if (parseada.isValid()) {
-            fechaEntregaTartas = parseada.startOf('day').toDate();
+          const fechaParseada = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ).startOf('day');
+          if (fechaParseada.isValid()) {
+            fechaEntregaTartas = fechaParseada.hour(12).minute(0).second(0).millisecond(0).toDate();
             console.log('🥧 Fecha entrega tartas detectada:', fechaEntregaTartas);
             break;
           }
         }
+
+        // Si sólo viene "tartas"
+        if (partes[0] === 'tartas' && partes.length === 1 && semanaSel) {
+          const viernes = mondayOfWeek.add(4, 'day');
+          fechaEntregaTartas = viernes.hour(12).minute(0).second(0).millisecond(0).toDate();
+          console.log('🥧 Fecha entrega tartas calculada (viernes):', fechaEntregaTartas);
+          break;
+        }
       }
     }
 
-    // ✅ Filtrar items según días habilitados
+    // Si no se detectó pero hay tartas, usar viernes por defecto
+    if (!fechaEntregaTartas && items.some(i => i.item_type === 'tarta') && semanaSel) {
+      const viernes = mondayOfWeek.add(4, 'day');
+      fechaEntregaTartas = viernes.hour(12).minute(0).second(0).millisecond(0).toDate();
+      console.log('🥧 Fecha entrega tartas por defecto (viernes):', fechaEntregaTartas);
+    }
+
+    // 🧹 Filtrar ítems según días habilitados
     const diasHabilitados = semanaSel.dias_habilitados || {};
     const itemsFiltrados = [];
 
@@ -91,6 +105,7 @@ export const createOrder = async (userId, items, total, {
         itemsFiltrados.push(item);
         continue;
       }
+
       if (!item.dia) {
         itemsFiltrados.push(item);
         continue;
@@ -103,6 +118,7 @@ export const createOrder = async (userId, items, total, {
         console.warn(`⚠️ Día inválido, se omite: ${item.dia}`);
         continue;
       }
+
       if (!diasHabilitados[diaNorm]) {
         console.warn(`⚠️ Día no habilitado, se omite: ${diaNorm}`);
         continue;
@@ -113,7 +129,7 @@ export const createOrder = async (userId, items, total, {
 
     console.log(`✅ Items filtrados: ${itemsFiltrados.length} de ${items?.length || 0}`);
 
-    // ✅ Insertar orden
+    // 📥 Insertar orden
     const orderInsert = await client.query(`
       INSERT INTO orders (
         user_id, total, fecha_entrega, observaciones,
@@ -136,11 +152,11 @@ export const createOrder = async (userId, items, total, {
     const orderId = orderInsert.rows[0].id;
     console.log(`📦 Orden creada con ID: ${orderId}`);
 
-    // ✅ Insertar items
+    // 📥 Insertar ítems
     const itemsParaInsertar = itemsFiltrados.filter(item => {
       const tipo = String(item.item_type).trim().toLowerCase();
       const qty = parseInt(item.quantity);
-      return qty > 0 && ['daily','fijo','extra','tarta','especial','company'].includes(tipo);
+      return qty > 0 && ['daily', 'fijo', 'extra', 'tarta', 'especial', 'company'].includes(tipo);
     });
 
     for (const item of itemsParaInsertar) {
@@ -160,10 +176,12 @@ export const createOrder = async (userId, items, total, {
             fechaDia = parsed.startOf('day').toDate();
           }
         }
+
         if (!fechaDia && DIAS_VALIDOS.includes(diaNorm)) {
           const index = DIAS_VALIDOS.indexOf(diaNorm);
           fechaDia = mondayOfWeek.add(index, 'day').toDate();
         }
+
         diaFinal = diaNorm;
       }
 

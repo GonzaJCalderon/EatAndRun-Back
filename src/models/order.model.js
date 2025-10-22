@@ -47,20 +47,21 @@ export const createOrder = async (userId, items, total, {
     console.log('📅 Fecha de entrega usada tal cual del frontend:', fechaEntregaFinal);
 
     // 🔍 Determinar la semana correspondiente
-    const semanaSel = semanasActivas.find(s =>
-      dayjs(fechaEntregaFinal).isBetween(
-        dayjs(s.semana_inicio).startOf('day'),
-        dayjs(s.semana_fin).endOf('day'),
-        'day',
-        '[]'
-      )
-    );
+ const semanaSel = semanasActivas.find(s =>
+  dayjs(fechaEntregaFinal).isBetween(
+    dayjs(s.fecha_inicio).startOf('day'),
+    dayjs(s.fecha_fin).endOf('day'),
+    'day',
+    '[]'
+  )
+);
 
     if (!semanaSel) {
       throw new Error(`No hay configuración para la semana del ${fechaEntrega}`);
     }
 
-    const mondayOfWeek = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+ const mondayOfWeek = dayjs(semanaSel.fecha_inicio).tz(TZ).startOf('day');
+
 
     // 🥧 Calcular fecha de entrega de tartas (si hay)
     let fechaEntregaTartas = null;

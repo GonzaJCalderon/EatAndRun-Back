@@ -567,14 +567,18 @@ if (['daily', 'fijo', 'especial', 'company'].includes(tipo)) {
 
 
   const fechaPorDia = {};
-  row.items.forEach((item) => {
-    if (item.dia && item.fecha_dia) {
-      const diaLower = item.dia.toLowerCase();
-      if (!fechaPorDia[diaLower]) {
-        fechaPorDia[diaLower] = dayjs(item.fecha_dia).format('YYYY-MM-DD');
+row.items.forEach(item => {
+  if (item.dia && item.fecha_dia) {
+    const fecha = dayjs(item.fecha_dia);
+    if (fecha.isValid()) {
+      const nombreDia = fecha.format('dddd'); // miércoles, jueves, etc.
+      if (!fechaPorDia[nombreDia]) {
+        fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
       }
     }
-  });
+  }
+});
+
   pedido.fecha_dia_por_dia = fechaPorDia;
 
     return {

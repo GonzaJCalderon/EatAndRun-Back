@@ -51,87 +51,97 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 };
 
 
+
+
 export const createOrderController = async (req, res) => {
-const { items, observaciones, metodoPago } = req.body;
-const raw_fecha_entrega = 
-  req.body.fecha_entrega || 
-  req.body.fecha_Entrega || 
-  req.body.fecha_entrega_tartas;
+  const { items, observaciones, metodoPago } = req.body;
 
-if (!raw_fecha_entrega) {
-  return res.status(400).json({ error: 'Falta la fecha de entrega' });
-}
+  // ✅ Aceptar múltiples variantes de fecha de entrega
+  const raw_fecha_entrega =
+    req.body.fecha_entrega ||
+    req.body.fecha_Entrega ||
+    req.body.fecha_entrega_tartas;
 
+  if (!raw_fecha_entrega) {
+    return res.status(400).json({ error: 'Falta la fecha de entrega' });
+  }
 
-  
+  // ✅ Definir la fecha normalizada
+  const fecha_entrega = raw_fecha_entrega;
+
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
+
   console.log('📦 Items recibidos en backend:', JSON.stringify(items, null, 2));
 
   // 🛡️ Validaciones básicas
-  if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
-  if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
-
-for (const i of items) {
-  if (!i.item_type || typeof i.quantity === 'undefined') {
-    return res.status(400).json({ error: 'Item malformado', item: i });
+  if (!items?.length) {
+    return res.status(400).json({ error: 'Items inválidos o vacíos' });
   }
 
-  const requiereDiaYId = ['daily', 'fijo', 'extra', 'especial'];
-  if (requiereDiaYId.includes(i.item_type) && (!i.dia || !i.item_id)) {
-    return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
-  }
+  for (const i of items) {
+    if (!i.item_type || typeof i.quantity === 'undefined') {
+      return res.status(400).json({ error: 'Item malformado', item: i });
+    }
 
-  if (i.item_type === 'extra' && (!i.item_id || isNaN(parseInt(i.item_id)))) {
-    return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
-  }
+    const requiereDiaYId = ['daily', 'fijo', 'extra', 'especial'];
 
-  if (i.item_type === 'especial' && isNaN(parseInt(i.item_id))) {
-    return res.status(400).json({ error: 'Item especial con ID no numérico', item: i });
-  }
+    if (requiereDiaYId.includes(i.item_type) && (!i.dia || !i.item_id)) {
+      return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
+    }
 
-  if (i.item_type === 'tarta' && !i.item_id) {
-    return res.status(400).json({ error: 'Tarta sin item_id', item: i });
-  }
-}
+    if (i.item_type === 'extra' && (!i.item_id || isNaN(parseInt(i.item_id)))) {
+      return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
+    }
 
+    if (i.item_type === 'especial' && isNaN(parseInt(i.item_id))) {
+      return res.status(400).json({ error: 'Item especial con ID no numérico', item: i });
+    }
+
+    if (i.item_type === 'tarta' && !i.item_id) {
+      return res.status(400).json({ error: 'Tarta sin item_id', item: i });
+    }
+  }
 
   try {
-    // 🗓️ Validar semana activa
- 
-    // ✅ Línea corregida
-const getLunesFromFecha = (fecha) => {
-  const fechaDayjs = dayjs(fecha).tz('America/Argentina/Buenos_Aires');
-  const dayOfWeek = fechaDayjs.day();
-  const lunes = dayOfWeek === 0 
-    ? fechaDayjs.subtract(6, 'day')
-    : fechaDayjs.subtract(dayOfWeek - 1, 'day');
-  return lunes.format('YYYY-MM-DD');
-};
+    // 📅 Calcular lunes de la semana de entrega
+    const getLunesFromFecha = (fecha) => {
+      const fechaDayjs = dayjs(fecha).tz(TZ);
+      const dayOfWeek = fechaDayjs.day(); // 0 = domingo
+      const lunes = dayOfWeek === 0
+        ? fechaDayjs.subtract(6, 'day')
+        : fechaDayjs.subtract(dayOfWeek - 1, 'day');
+      return lunes.format('YYYY-MM-DD');
+    };
 
-const lunesSemana = getLunesFromFecha(fecha_entrega);
+    const lunesSemana = getLunesFromFecha(fecha_entrega);
+
+    // 🔍 Verificar semana activa
     const result = await pool.query(
-  'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
-  [lunesSemana]
-);
-const semana = result.rows[0];
+      'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
+      [lunesSemana]
+    );
+    const semana = result.rows[0];
 
-// Agregar esta validación
-if (!semana) {
-  return res.status(400).json({ 
-    error: `No hay configuración para la semana del ${lunesSemana}. Contacta al administrador.`,
-    fecha_entrega,
-    semana_calculada: lunesSemana
-  });
-}
+    if (!semana) {
+      return res.status(400).json({
+        error: `No hay configuración para la semana del ${lunesSemana}. Contacta al administrador.`,
+        fecha_entrega,
+        semana_calculada: lunesSemana,
+      });
+    }
 
-if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
+    if (!semana.habilitado) {
+      return res.status(400).json({ error: 'La semana no está habilitada' });
+    }
 
-    // ✅ Obtener precios actualizados
+    // 💰 Obtener precios
     const precios = await getConfig('precios');
-    if (!precios) return res.status(500).json({ error: 'No se pudo obtener configuración de precios' });
+    if (!precios) {
+      return res.status(500).json({ error: 'No se pudo obtener configuración de precios' });
+    }
 
-    // 💸 Calcular total
+    // 🧮 Calcular total
     let total = 0;
     let totalPlatos = 0;
     const diasConPlato = new Set();
@@ -142,34 +152,41 @@ if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está
       switch (item.item_type) {
         case 'daily':
         case 'fijo':
-        case 'especial':  // ⬅️ AGREGAR ESTO
-  case 'company': 
+        case 'especial':
+        case 'company':
           totalPlatos += cantidad;
           total += cantidad * precios.plato;
           diasConPlato.add(item.dia);
           break;
 
-        case 'extra':
+        case 'extra': {
           const precioExtra = {
             1: precios.postre,
             2: precios.ensalada,
-            3: precios.proteina
+            3: precios.proteina,
           }[item.item_id];
 
           if (precioExtra) {
             total += cantidad * precioExtra;
           }
           break;
+        }
 
-       case 'tarta': {
-  const tartaRes = await pool.query('SELECT precio FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1', [item.item_id]);
-  const tarta = tartaRes.rows[0];
-  if (!tarta) throw new Error(`Tarta '${item.item_id}' no encontrada`);
+        case 'tarta': {
+          const tartaRes = await pool.query(
+            'SELECT precio FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1',
+            [item.item_id]
+          );
+          const tarta = tartaRes.rows[0];
 
-  total += cantidad * tarta.precio;
-  break;
-}
+          if (!tarta) {
+            console.warn('⚠️ Tarta no encontrada:', item.item_id);
+            throw new Error(`Tarta '${item.item_id}' no encontrada`);
+          }
 
+          total += cantidad * tarta.precio;
+          break;
+        }
 
         case 'skip':
           break;
@@ -179,29 +196,34 @@ if (!semana.habilitado) return res.status(400).json({ error: 'La semana no está
       }
     }
 
-    // 🚚 Sumar envío por día con plato
+    // 🚚 Envío por día con plato
     total += diasConPlato.size * precios.envio;
 
-    // 🎉 Descuento si supera umbral
+    // 🎁 Descuento si aplica
     if (totalPlatos >= precios.umbral_descuento) {
       total -= totalPlatos * precios.descuento_por_plato;
     }
 
-    // 🧾 Crear pedido
-   const order = await createOrder(userId, items, total, {
-  fechaEntrega: fecha_entrega,
-  observaciones,
-  metodoPago,
-  tipoMenu: tipo_menu,
-  comprobanteUrl: null  // ⬅️ AGREGAR ESTO
-});
+    // ✅ Crear pedido
+    const order = await createOrder(userId, items, total, {
+      fechaEntrega: fecha_entrega,
+      observaciones,
+      metodoPago,
+      tipoMenu: tipo_menu,
+      comprobanteUrl: null,
+    });
 
     res.status(201).json(order);
+
   } catch (err) {
     console.error('❌ Error al crear pedido:', err);
-    res.status(500).json({ error: 'Error al crear el pedido', details: err.message });
+    res.status(500).json({
+      error: 'Error al crear el pedido',
+      details: err.message,
+    });
   }
 };
+
 
 
 

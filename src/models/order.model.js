@@ -31,16 +31,28 @@ export const createOrder = async (userId, items, total, {
       throw new Error('No hay semanas habilitadas para tomar pedidos');
     }
 
-    if (!fechaEntrega) {
-      throw new Error('No se recibió fechaEntrega desde el frontend');
+   // ✅ Extraer la primera fecha real de entrega desde los ítems
+const fechasItems = items
+  .map(i => {
+    if (!i.dia) return null;
+    const partes = String(i.dia).split('-'); // ej: "miercoles-2025-10-22"
+    if (partes.length === 4) {
+      return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+        .tz(TZ)
+        .startOf('day');
     }
-    if (!dayjs(fechaEntrega, 'YYYY-MM-DD', true).isValid()) {
-      throw new Error(`Fecha de entrega inválida: ${fechaEntrega}`);
-    }
+    return null;
+  })
+  .filter(f => f && f.isValid());
 
-    let fechaEntregaFinal = dayjs(fechaEntrega, 'YYYY-MM-DD')
-      .tz(TZ)
-      .startOf('day');
+// ✅ Si hay fechas de ítems, se toma la más cercana (mínima)
+if (fechasItems.length > 0) {
+  fechaEntregaFinal = dayjs.min(...fechasItems);
+  console.log("✅ Fecha de entrega tomada de los ítems:", fechaEntregaFinal.format('YYYY-MM-DD'));
+} else {
+  throw new Error('No se pudo determinar una fecha de entrega desde los ítems');
+}
+
 
     // ✅ Buscar semana por fechaEntrega
     let semanaSel = semanasActivas.find(s =>
@@ -66,19 +78,32 @@ export const createOrder = async (userId, items, total, {
     }
 
     // ✅ Si fechaEntrega no coincide con la semana seleccionada, corregirla
-    if (!fechaEntregaFinal.isBetween(
-      dayjs(semanaSel.semana_inicio),
-      dayjs(semanaSel.semana_fin),
-      'day',
-      '[]'
-    )) {
-      const primerItemConDia = items.find(i => i.dia);
-      if (primerItemConDia) {
-        const [, y, m, d] = primerItemConDia.dia.split('-'); // ejemplo jueves-2025-10-23
-        fechaEntregaFinal = dayjs(`${y}-${m}-${d}`, 'YYYY-MM-DD').tz(TZ).startOf('day');
-        console.log("✅ Fecha de entrega ajustada automáticamente:", fechaEntregaFinal.toDate());
-      }
-    }
+// ✅ Ajuste inteligente de fechaEntrega
+const semanaInicio = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+const semanaFin = dayjs(semanaSel.semana_fin).tz(TZ).endOf('day');
+
+// 📌 Caso 1: Si mandaron domingo (fechaEntrega < semana_inicio) → usar lunes
+if (fechaEntregaFinal.isBefore(semanaInicio)) {
+  fechaEntregaFinal = semanaInicio;
+  console.log(`⚠️ FechaEntrega venía antes de la semana. Ajustada a lunes ${fechaEntregaFinal.format('YYYY-MM-DD')}`);
+}
+
+// 📌 Caso 2: Si mandan sábado o después de semana_fin → ajustar al último día (viernes)
+if (fechaEntregaFinal.isAfter(semanaFin)) {
+  fechaEntregaFinal = semanaFin;
+  console.log(`⚠️ FechaEntrega venía después de la semana. Ajustada a viernes ${fechaEntregaFinal.format('YYYY-MM-DD')}`);
+}
+
+// 📌 Caso 3: Si está fuera y hay items con fecha, ajustar al día real de esos ítems
+if (!fechaEntregaFinal.isBetween(semanaInicio, semanaFin, 'day', '[]')) {
+  const itemConDia = items.find(i => i.dia);
+  if (itemConDia) {
+    const [, y, m, d] = itemConDia.dia.split('-'); // ej: jueves-2025-10-23
+    fechaEntregaFinal = dayjs(`${y}-${m}-${d}`, 'YYYY-MM-DD').tz(TZ).startOf('day');
+    console.log(`✅ FechaEntrega ajustada al primer item: ${fechaEntregaFinal.format('YYYY-MM-DD')}`);
+  }
+}
+
 
     // 📌 Convertir a Date real para DB
     const fechaEntregaDate = fechaEntregaFinal.toDate();

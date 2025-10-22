@@ -3,8 +3,173 @@ import dayjs from '../utils/tiempo.js';
 import { getSemanasActivas } from '../models/semanas.model.js';
 import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechaspedidos.js';
 
+// ✅ createOrder con fecha de entrega REAL por ítem
 
+import { pool } from '../db/index.js';
+import dayjs from '../utils/tiempo.js';
+import { getSemanasActivas } from '../models/semanas.model.js';
 
+export const createOrder = async (
+  userId,
+  items,
+  total,
+  { fechaEntrega, observaciones, metodoPago, tipoMenu, comprobanteUrl = null }
+) => {
+  const client = await pool.connect();
+  const TZ = 'America/Argentina/Buenos_Aires';
+  const normalizeDia = (d) =>
+    String(d || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+
+  try {
+    await client.query('BEGIN');
+
+    // 1️⃣ Tomamos la fecha más temprana de los ítems
+    const fechasItems = items
+      .map((i) => {
+        if (!i.dia) return null;
+        const partes = String(i.dia).split('-');
+        if (partes.length === 4) {
+          return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+            .tz(TZ)
+            .startOf('day');
+        }
+        return null;
+      })
+      .filter((f) => f && f.isValid());
+
+    if (!fechasItems.length) {
+      throw new Error('No se pudo determinar fecha de entrega desde los ítems');
+    }
+
+    let fechaEntregaFinal = dayjs.min(...fechasItems);
+
+    // 2️⃣ Buscar semana activa que contenga esa fecha
+    const semanasActivas = await getSemanasActivas();
+    if (!semanasActivas.length) {
+      throw new Error('No hay semanas habilitadas para tomar pedidos');
+    }
+
+    let semanaSel = semanasActivas.find((s) =>
+      fechaEntregaFinal.isBetween(
+        dayjs(s.semana_inicio).startOf('day'),
+        dayjs(s.semana_fin).endOf('day'),
+        'day',
+        '[]'
+      )
+    );
+
+    if (!semanaSel) {
+      const itemConSemana = items.find((i) => i.semana_id);
+      if (itemConSemana) {
+        semanaSel = semanasActivas.find((s) => s.id === itemConSemana.semana_id);
+      }
+    }
+
+    if (!semanaSel) {
+      throw new Error(`No hay configuración para la semana del ${fechaEntregaFinal.format('YYYY-MM-DD')}`);
+    }
+
+    // 3️⃣ Ajuste solo si está fuera de la semana, pero respetando el valor del ítem
+    const semanaInicio = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+    const semanaFin = dayjs(semanaSel.semana_fin).tz(TZ).endOf('day');
+
+    if (fechaEntregaFinal.isBefore(semanaInicio)) {
+      fechaEntregaFinal = semanaInicio;
+    }
+    if (fechaEntregaFinal.isAfter(semanaFin)) {
+      fechaEntregaFinal = semanaFin;
+    }
+
+    const fechaEntregaDate = fechaEntregaFinal.toDate();
+    const mondayOfWeek = semanaInicio;
+
+    // 4️⃣ Inserto en tabla orders
+    const resOrder = await client.query(
+      `
+      INSERT INTO orders (
+        user_id, total, fecha_entrega, observaciones,
+        metodo_pago, tipo_menu, comprobante_url, fecha_entrega_tartas
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      RETURNING id
+    `,
+      [
+        userId,
+        total,
+        fechaEntregaDate,
+        observaciones || '',
+        metodoPago || null,
+        tipoMenu || 'usuario',
+        comprobanteUrl || null,
+        null // se completa si hay tartas
+      ]
+    );
+
+    const orderId = resOrder.rows[0].id;
+
+    // 5️⃣ Insertar ítems con FECHA EXACTA del front
+    for (const item of items) {
+      let fechaDia = null;
+      let diaFinal = null;
+      const tipo = String(item.item_type || '').toLowerCase();
+
+      if (item.dia) {
+        const partes = item.dia.split('-'); // ej: jueves-2025-10-23
+        const diaTexto = partes[0];
+        const diaNorm = normalizeDia(diaTexto);
+
+        if (partes.length === 4) {
+          const fechaTexto = `${partes[1]}-${partes[2]}-${partes[3]}`;
+          const parsed = dayjs(fechaTexto, 'YYYY-MM-DD').tz(TZ);
+          if (parsed.isValid()) {
+            fechaDia = parsed.startOf('day').toDate();
+          }
+        }
+
+        diaFinal = diaNorm;
+      }
+
+      if (!fechaDia) {
+        // fallback: usar lunes de la semana + offset si no vino fecha
+        const fallbackIndex = DIAS_VALIDOS.indexOf(normalizeDia(item.dia || ''));
+        if (fallbackIndex !== -1) {
+          fechaDia = mondayOfWeek.add(fallbackIndex, 'day').toDate();
+        }
+      }
+
+      await client.query(
+        `
+        INSERT INTO order_items (
+          order_id, item_type, item_id, item_name,
+          quantity, dia, precio_unitario, fecha_dia
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `,
+        [
+          orderId,
+          tipo,
+          tipo === 'tarta' ? null : Number(item.item_id),
+          tipo === 'tarta' ? String(item.item_id) : String(item.item_name || `ID:${item.item_id}`),
+          Number(item.quantity),
+          diaFinal,
+          item.precio ?? null,
+          fechaDia
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+    return { id: orderId, message: 'Pedido creado correctamente' };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
 
 
 export const getOrdersByUser = async (userId) => {

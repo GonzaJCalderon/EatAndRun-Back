@@ -15,6 +15,7 @@ dayjs.extend(isBetween);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter); // ⬅️ Y AGREGA ESTO
 dayjs.locale('es');
+dayjs.extend(minMax);
 
 export const TZ = 'America/Argentina/Buenos_Aires';
 

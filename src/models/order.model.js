@@ -43,6 +43,12 @@ export const createOrder = async (
 
     let fechaEntregaFinal = dayjs.min(...fechasItems);
 
+    const editableHasta = fechaEntregaFinal
+  .subtract(1, 'day')
+  .hour(23).minute(59).second(59)
+  .toDate();
+
+
     // ✅ 2) Verificar semana activa
     const semanasActivas = await getSemanasActivas();
     if (semanasActivas.length === 0)
@@ -102,26 +108,28 @@ export const createOrder = async (
     }
 
     // ✅ 4) Insertar orden principal
-    const respOrder = await client.query(
-      `
-      INSERT INTO orders (
-        user_id, total, fecha_entrega, observaciones,
-        metodo_pago, tipo_menu, comprobante_url, fecha_entrega_tartas
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      RETURNING id
-    `,
-      [
-        userId,
-        total,
-        fechaEntregaDate,
-        observaciones || '',
-        metodoPago || null,
-        tipoMenu || 'usuario',
-        comprobanteUrl || null,
-        fechaEntregaTartas
-      ]
-    );
+ const respOrder = await client.query(
+  `
+  INSERT INTO orders (
+    user_id, total, fecha_entrega, observaciones,
+    metodo_pago, tipo_menu, comprobante_url, fecha_entrega_tartas, editable_hasta
+  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  RETURNING id
+`,
+[
+  userId,
+  total,
+  fechaEntregaDate,
+  observaciones || '',
+  metodoPago || null,
+  tipoMenu || 'usuario',
+  comprobanteUrl || null,
+  fechaEntregaTartas,
+  editableHasta // 👈 este es el nuevo valor
+]
+);
+
 
     const orderId = respOrder.rows[0].id;
 

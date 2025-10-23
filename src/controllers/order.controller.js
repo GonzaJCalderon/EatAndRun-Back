@@ -27,6 +27,23 @@ const TZ = 'America/Argentina/Buenos_Aires';
 
 // ✅ Controlador para generar URL firmada de Cloudinary
 // controllers/order.controller.js
+export const canEditOrderController = async (req, res) => {
+  const { id } = req.params;
+
+  const { rows } = await pool.query(
+    'SELECT editable_hasta FROM orders WHERE id = $1',
+    [id]
+  );
+
+  if (!rows.length) return res.status(404).json({ editable: false });
+
+  const ahora = dayjs().tz('America/Argentina/Buenos_Aires');
+  const editableHasta = dayjs(rows[0].editable_hasta);
+
+  res.json({ editable: ahora.isBefore(editableHasta) });
+};
+
+
 
 export const getSignedComprobanteUrlController = async (req, res) => {
   const { public_id } = req.query;

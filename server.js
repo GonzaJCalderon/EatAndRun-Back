@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/env.js';
 import { pool } from './src/db/index.js';
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './config/swagger.js';
 
 import authRoutes from './src/routes/auth.routes.js';
 import profileRoutes from './src/routes/profile.routes.js';
@@ -26,18 +28,13 @@ const app = express();
 // ✅ CORS configurado para producción
 const allowedOrigins = [
   'https://eatandrun.shop',    // 👈 tu frontend en Hostinger
-  'http://localhost:5173'      // 👈 útil para desarrollo local
+  'http://localhost:5173',     // 👈 útil para desarrollo local
+  'http://localhost:4000',     // 👈 para que el Swagger local pueda pegar a producción
+  'https://eatandrun-back-production.up.railway.app' // 👈 por seguridad propia
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Permitir peticiones sin origin (como Postman) o verificadas
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`⛔ CORS: Origen no permitido -> ${origin}`));
-    }
-  },
+  origin: true, // 👈 Permite cualquier origen para que el swagger.html compartido funcione
   credentials: true
 }));
 
@@ -69,6 +66,9 @@ app.use('/api/empresa', empresaRoutes);
 app.use('/api/invitacion', invitacionRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/menu', menuRoutes);
+
+// ✅ Swagger Docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ✅ Ruta raíz
 app.get('/', (req, res) => {

@@ -20,17 +20,71 @@ import { crearEmpleadoDesdeEmpresa } from '../services/createEmpleado.js';
 
 const router = express.Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Empresa
+ *   description: Gestión corporativa
+ */
+
 // 🔐 Proteger todas las rutas con token y rol 'empresa'
 router.use(verifyToken);
 router.use(authorizeRoles('empresa'));
 
 // 🏢 Obtener info de mi empresa
+/**
+ * @swagger
+ * /api/empresa/mi-empresa:
+ *   get:
+ *     summary: Obtener información de mi empresa
+ *     tags: [Empresa]
+ *     responses:
+ *       200:
+ *         description: Información de la empresa
+ */
 router.get('/mi-empresa', getEmpresaInfo);
 
 // 👥 Ver empleados de mi empresa
+/**
+ * @swagger
+ * /api/empresa/empleados:
+ *   get:
+ *     summary: Obtener empleados de la empresa
+ *     tags: [Empresa]
+ *     responses:
+ *       200:
+ *         description: Lista de empleados
+ */
 router.get('/empleados', getEmpleadosByEmpresa);
 
 // ➕ Crear empleado nuevo directamente desde empresa
+/**
+ * @swagger
+ * /api/empresa/empleados/nuevo:
+ *   post:
+ *     summary: Crear un nuevo empleado
+ *     tags: [Empresa]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - apellido
+ *               - email
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               apellido:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Empleado creado
+ */
 router.post('/empleados/nuevo', async (req, res) => {
   try {
     const { name, apellido, email } = req.body;
@@ -54,16 +108,63 @@ router.post('/empleados/nuevo', async (req, res) => {
 });
 
 // 🔗 Obtener link de invitación (crea si no existe)
+/**
+ * @swagger
+ * /api/empresa/link-invitacion:
+ *   get:
+ *     summary: Obtener enlace de invitación
+ *     tags: [Empresa]
+ *     responses:
+ *       200:
+ *         description: Enlace de invitación
+ */
 router.get('/link-invitacion', getLinkInvitacionEmpresa);
 
 // 🔁 Regenerar link de invitación
+/**
+ * @swagger
+ * /api/empresa/regenerar-link:
+ *   post:
+ *     summary: Regenerar enlace de invitación
+ *     tags: [Empresa]
+ *     responses:
+ *       200:
+ *         description: Nuevo enlace
+ */
 router.post('/regenerar-link', regenerateLinkInvitacionEmpresa); // 👈 importante para evitar el error de red
 
 // 📦 Ver pedidos de empleados de la empresa
+/**
+ * @swagger
+ * /api/empresa/pedidos:
+ *   get:
+ *     summary: Obtener pedidos de los empleados
+ *     tags: [Empresa]
+ *     responses:
+ *       200:
+ *         description: Lista de pedidos
+ */
 router.get('/pedidos', getPedidosDeMiEmpresa);
 
 // ➖ Eliminar empleado de empresa
 // ➖ Eliminar empleado de empresa y de la tabla de usuarios si corresponde
+// ➖ Eliminar empleado de empresa y de la tabla de usuarios si corresponde
+/**
+ * @swagger
+ * /api/empresa/eliminar-empleado/{id}:
+ *   delete:
+ *     summary: Remover empleado de la empresa
+ *     tags: [Empresa]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Empleado removido
+ */
 router.delete('/eliminar-empleado/:id', async (req, res) => {
   try {
     const userId = parseInt(req.params.id);

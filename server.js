@@ -73,8 +73,59 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // ✅ Ruta raíz
 app.get('/', (req, res) => {
   res.send(`
-    <h1>🍽️ Eat and Run API is running</h1>
-    <p>✔️ Backend listo para recibir peticiones</p>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Eat and Run API</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          margin: 0;
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          color: white;
+          text-align: center;
+        }
+        .container {
+          padding: 2rem;
+          background: rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(10px);
+          border-radius: 20px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        h1 { font-size: 3rem; margin-bottom: 0.5rem; }
+        p { font-size: 1.2rem; color: #a2a2d0; margin-bottom: 2rem; }
+        .btn {
+          display: inline-block;
+          padding: 12px 24px;
+          background-color: #e94560;
+          color: white;
+          text-decoration: none;
+          border-radius: 8px;
+          font-weight: bold;
+          transition: transform 0.2s, background-color 0.2s;
+        }
+        .btn:hover {
+          background-color: #ff4d6d;
+          transform: scale(1.05);
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🍽️ Eat and Run API</h1>
+        <p>El backend está funcionando correctamente.</p>
+        <a href="/api-docs" class="btn">Ver Documentación de API</a>
+      </div>
+    </body>
+    </html>
   `);
 });
 app.get('/debug-tz', (req, res) => {

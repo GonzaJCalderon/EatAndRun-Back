@@ -470,13 +470,7 @@ export const eliminarSemanaSiNoTienePedidos = async (req, res) => {
 
     const { semana_inicio, semana_fin } = semanaResult.rows[0];
 
-    // 🔐 Validar que la semana sea futura
-    const hoy = dayjs().format("YYYY-MM-DD");
-    if (dayjs(semana_inicio).isSameOrBefore(hoy)) {
-      return res.status(400).json({
-        error: '❌ Solo se pueden eliminar semanas futuras (aún no comenzadas).'
-      });
-    }
+
 
     // 2. Verificar si hay pedidos en ese rango de fechas
     const pedidos = await pool.query(`

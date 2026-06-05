@@ -15,3 +15,18 @@ export const subirImagenMenuController = async (req, res) => {
   }
 };
 
+export const subirImagenTartaController = async (req, res) => {
+  try {
+    if (!req.file || !req.file.path) {
+      return res.status(400).json({ error: 'No se envió ninguna imagen' });
+    }
+
+// controller
+res.status(200).json({ secure_url: req.file.path });
+
+  } catch (err) {
+    console.error('❌ Error al subir imagen de tarta:', err);
+    res.status(500).json({ error: 'Error al subir imagen' });
+  }
+};
+

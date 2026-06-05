@@ -5,15 +5,45 @@ import {
   getAllOrders,
   updateOrderStatus,
   getOrderStatusHistory,
-  saveOrderComprobante
+  saveOrderComprobante,
+ getPedidoConItemsById, 
+ getPedidosConItems 
 } from '../models/order.model.js';
 import { cloudinary } from '../utils/cloudinary.js'; // Si estás usando Cloudinary en uploads
 import { getLunesSemanaActual } from '../utils/date.utils.js';
+import { getConfig } from '../models/config.model.js';
+import dayjs from 'dayjs';
+import 'dayjs/locale/es.js';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.locale('es');
+
+const TZ = 'America/Argentina/Buenos_Aires';
+
 
 
 
 // ✅ Controlador para generar URL firmada de Cloudinary
 // controllers/order.controller.js
+export const canEditOrderController = async (req, res) => {
+  const { id } = req.params;
+
+  const { rows } = await pool.query(
+    'SELECT editable_hasta FROM orders WHERE id = $1',
+    [id]
+  );
+
+  if (!rows.length) return res.status(404).json({ editable: false });
+
+  const ahora = dayjs().tz('America/Argentina/Buenos_Aires');
+  const editableHasta = dayjs(rows[0].editable_hasta);
+
+  res.json({ editable: ahora.isBefore(editableHasta) });
+};
+
+
 
 export const getSignedComprobanteUrlController = async (req, res) => {
   const { public_id } = req.query;
@@ -39,51 +69,179 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 
 
 
+
 export const createOrderController = async (req, res) => {
-  const { items, total, observaciones, metodoPago, fecha_entrega } = req.body;
+  const { items, observaciones, metodoPago } = req.body;
+
+  // ✅ Aceptar múltiples variantes de fecha de entrega
+  const raw_fecha_entrega =
+    req.body.fecha_entrega ||
+    req.body.fecha_Entrega ||
+    req.body.fecha_entrega_tartas;
+
+  if (!raw_fecha_entrega) {
+    return res.status(400).json({ error: 'Falta la fecha de entrega' });
+  }
+
+  // ✅ Definir la fecha normalizada
+  const fecha_entrega = raw_fecha_entrega;
+
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
 
-  if (!items?.length) return res.status(400).json({ error: 'Items inválidos o vacíos' });
-  if (!fecha_entrega) return res.status(400).json({ error: 'Falta la fecha de entrega' });
+  console.log('📦 Items recibidos en backend:', JSON.stringify(items, null, 2));
+
+  // 🛡️ Validaciones básicas
+  if (!items?.length) {
+    return res.status(400).json({ error: 'Items inválidos o vacíos' });
+  }
 
   for (const i of items) {
     if (!i.item_type || typeof i.quantity === 'undefined') {
       return res.status(400).json({ error: 'Item malformado', item: i });
     }
-    if (['daily','fijo','extra'].includes(i.item_type) && (!i.dia || !i.item_id)) {
+
+    const requiereDiaYId = ['daily', 'fijo', 'extra', 'especial'];
+
+    if (requiereDiaYId.includes(i.item_type) && (!i.dia || !i.item_id)) {
       return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
     }
-    if (i.item_type === 'extra' && isNaN(parseInt(i.item_id))) {
+
+    if (i.item_type === 'extra' && (!i.item_id || isNaN(parseInt(i.item_id)))) {
       return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
     }
+
+    if (i.item_type === 'especial' && isNaN(parseInt(i.item_id))) {
+      return res.status(400).json({ error: 'Item especial con ID no numérico', item: i });
+    }
+
     if (i.item_type === 'tarta' && !i.item_id) {
       return res.status(400).json({ error: 'Tarta sin item_id', item: i });
     }
   }
 
   try {
-const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
-    const result = await pool.query('SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1', [lunesSemana]);
+    // 📅 Calcular lunes de la semana de entrega
+    const getLunesFromFecha = (fecha) => {
+      const fechaDayjs = dayjs(fecha).tz(TZ);
+      const dayOfWeek = fechaDayjs.day(); // 0 = domingo
+      const lunes = dayOfWeek === 0
+        ? fechaDayjs.subtract(6, 'day')
+        : fechaDayjs.subtract(dayOfWeek - 1, 'day');
+      return lunes.format('YYYY-MM-DD');
+    };
+
+    const lunesSemana = getLunesFromFecha(fecha_entrega);
+
+    // 🔍 Verificar semana activa
+    const result = await pool.query(
+      'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
+      [lunesSemana]
+    );
     const semana = result.rows[0];
-    if (!semana?.habilitado) return res.status(400).json({ error: 'La semana no está habilitada' });
-    if (semana.cierre && new Date(semana.cierre) < new Date()) {
-      return res.status(400).json({ error: '⏰ El plazo ya cerró' });
+
+    if (!semana) {
+      return res.status(400).json({
+        error: `No hay configuración para la semana del ${lunesSemana}. Contacta al administrador.`,
+        fecha_entrega,
+        semana_calculada: lunesSemana,
+      });
     }
 
+    if (!semana.habilitado) {
+      return res.status(400).json({ error: 'La semana no está habilitada' });
+    }
+
+    // 💰 Obtener precios
+    const precios = await getConfig('precios');
+    if (!precios) {
+      return res.status(500).json({ error: 'No se pudo obtener configuración de precios' });
+    }
+
+    // 🧮 Calcular total
+    let total = 0;
+    let totalPlatos = 0;
+    const diasConPlato = new Set();
+
+    for (const item of items) {
+      const cantidad = parseInt(item.quantity) || 0;
+
+      switch (item.item_type) {
+        case 'daily':
+        case 'fijo':
+        case 'especial':
+        case 'company':
+          totalPlatos += cantidad;
+          total += cantidad * precios.plato;
+          diasConPlato.add(item.dia);
+          break;
+
+        case 'extra': {
+          const precioExtra = {
+            1: precios.postre,
+            2: precios.ensalada,
+            3: precios.proteina,
+          }[item.item_id];
+
+          if (precioExtra) {
+            total += cantidad * precioExtra;
+          }
+          break;
+        }
+
+        case 'tarta': {
+          const tartaRes = await pool.query(
+            'SELECT precio FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1',
+            [item.item_id]
+          );
+          const tarta = tartaRes.rows[0];
+
+          if (!tarta) {
+            console.warn('⚠️ Tarta no encontrada:', item.item_id);
+            throw new Error(`Tarta '${item.item_id}' no encontrada`);
+          }
+
+          total += cantidad * tarta.precio;
+          break;
+        }
+
+        case 'skip':
+          break;
+
+        default:
+          console.warn('⚠️ Tipo de item desconocido:', item.item_type);
+      }
+    }
+
+    // 🚚 Envío por día con plato
+    total += diasConPlato.size * precios.envio;
+
+    // 🎁 Descuento si aplica
+    if (totalPlatos >= precios.umbral_descuento) {
+      total -= totalPlatos * precios.descuento_por_plato;
+    }
+
+    // ✅ Crear pedido
     const order = await createOrder(userId, items, total, {
       fechaEntrega: fecha_entrega,
       observaciones,
       metodoPago,
       tipoMenu: tipo_menu,
+      comprobanteUrl: null,
     });
 
     res.status(201).json(order);
+
   } catch (err) {
     console.error('❌ Error al crear pedido:', err);
-    res.status(500).json({ error: 'Error al crear el pedido', details: err.message });
+    res.status(500).json({
+      error: 'Error al crear el pedido',
+      details: err.message,
+    });
   }
 };
+
+
 
 
 
@@ -95,10 +253,10 @@ const lunesSemana = getLunesSemanaActual().toISOString().slice(0, 10);
 // Obtener pedidos del usuario actual
 export const getUserOrdersController = async (req, res) => {
   try {
-    const orders = await getOrdersByUser(req.user.id);
-    res.json(orders);
+    const pedidos = await getPedidosConItems('WHERE o.user_id = $1', [req.user.id]);
+    res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener pedidos del usuario' });
+    res.status(500).json({ error: 'Error al obtener pedidos del usuario', details: err.message });
   }
 };
 
@@ -121,80 +279,13 @@ function calcularFechaEntregaDesdeDia(diaTexto, fechaEntrega) {
 
 // Obtener todos los pedidos (admin/moderador)
 
+
+
+// Reemplaza tu getAllOrdersController actual con esta versión corregida
+
 export const getAllOrdersController = async (req, res) => {
   try {
-  const result = await pool.query(`
-  SELECT 
-    o.*,
-    o.tipo_menu,
-    u.name AS usuario_nombre,
-    up.apellido AS usuario_apellido,
-    u.email,
-    up.telefono,
-    up.direccion_principal,
-    json_agg(json_build_object(
-      'item_type', oi.item_type,
-      'item_id', oi.item_id,
-      'item_name', oi.item_name,
-      'quantity', oi.quantity,
-      'dia', oi.dia
-    )) AS items
-  FROM orders o
-  JOIN users u ON o.user_id = u.id
-  LEFT JOIN user_profiles up ON u.id = up.user_id
-  LEFT JOIN order_items oi ON oi.order_id = o.id
-  GROUP BY o.id, u.name, u.email, up.apellido, up.telefono, up.direccion_principal
-  ORDER BY o.created_at DESC
-`);
-
-
-    const pedidos = result.rows.map((row) => {
-      const pedido = {
-        diarios: {},
-        extras: {},
-        tartas: {}
-      };
-
-      row.items.forEach((item) => {
-        const tipo = item.item_type;
-        const nombre = item.item_name;
-        if (!nombre) return;
-        const dia = item.dia || 'sin_dia';
-        const cantidad = Number(item.quantity);
-        if (isNaN(cantidad)) return;
-
-        if (tipo === 'daily' || tipo === 'fijo') {
-          if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-          pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-        } else if (tipo === 'extra') {
-          if (!pedido.extras[dia]) pedido.extras[dia] = {};
-          pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
-        } else if (tipo === 'tarta') {
-          pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
-        }
-      });
-
-      return {
-        id: row.id,
-        tipo_menu: row.tipo_menu,
-usuario: {
-  nombre: row.usuario_nombre,
-  apellido: row.usuario_apellido, // 👈 asegurate que la uses
-  email: row.email,
-  telefono: row.telefono,
-  direccion: row.direccion_principal,
-},
-
-
-        estado: row.status,
-        fecha: row.fecha_entrega,
-        observaciones: row.observaciones,
-        comprobanteUrl: row.comprobante_url,
-        comprobanteNombre: row.comprobante_nombre,
-        pedido
-      };
-    });
-
+    const pedidos = await getPedidosConItems(); // ✅ esta función ya está importada arriba
     res.json(pedidos);
   } catch (err) {
     console.error('❌ Error al obtener pedidos completos:', err);
@@ -299,28 +390,24 @@ export const createOrderWithUploadController = async (req, res) => {
 
 
 
+
 export const getOrderByIdController = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(`
-      SELECT o.*, u.name AS usuario_nombre, u.email, up.telefono, up.direccion_principal
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      WHERE o.id = $1
-    `, [id]);
+    const pedido = await getPedidoConItemsById(id);
 
-    if (result.rows.length === 0) {
+    if (!pedido) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    res.json(pedido);
   } catch (err) {
     console.error('❌ Error al obtener pedido:', err);
-    res.status(500).json({ error: 'Error al obtener pedido' });
+    res.status(500).json({ error: 'Error al obtener pedido', details: err.message });
   }
 };
+
 
 
 export const updatePedidoFields = async (req, res) => {
@@ -339,48 +426,197 @@ export const updatePedidoFields = async (req, res) => {
   }
 };
 
+// order.controller.js - FRAGMENTO CORREGIDO
 
 export const updateOrderItemsController = async (req, res) => {
-  const { id } = req.params;
-  const { items } = req.body; // items es un array completo reemplazando los actuales
-
-  if (!Array.isArray(items)) {
-    return res.status(400).json({ error: 'Items inválidos. Esperado array.' });
-  }
-
   const client = await pool.connect();
-
   try {
-    await client.query('BEGIN');
-
-    // 🚮 Borra los ítems anteriores de este pedido
-    await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
-
-    // ➕ Inserta los nuevos ítems
-    for (const item of items) {
-      const { item_type, item_id, item_name, quantity, dia, precio_unitario } = item;
-
-      await client.query(`
-        INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        id,
-        item_type,
-        !isNaN(parseInt(item_id)) ? parseInt(item_id) : null,
-        item_name,
-        quantity,
-        dia || null,
-        precio_unitario || null
-      ]);
+    const orderId = parseInt(req.params.id, 10);
+    const { items } = req.body;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Formato inválido de items' });
     }
 
+    await client.query('BEGIN');
+
+    const normalizeDia = (d = '') =>
+      String(d)
+        .split(' ')[0]
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    // 🔥 Obtener fecha_entrega del pedido
+    const { rows: [order] } = await client.query(
+      'SELECT fecha_entrega FROM orders WHERE id = $1',
+      [orderId]
+    );
+    
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `Orden ${orderId} no encontrada` });
+    }
+
+    // 🔥 Eliminar TODOS los items anteriores
+    await client.query('DELETE FROM order_items WHERE order_id = $1', [orderId]);
+
+    let inserted = 0;
+
+    // 🔥 Insertar TODOS los items nuevos
+    for (const it of items) {
+      const { item_type, item_id, item_name, quantity, dia, fecha_dia } = it ?? {};
+      
+      if (!item_type || item_id == null || quantity == null) {
+        console.warn('⚠️ Item incompleto, omitido:', it);
+        continue;
+      }
+
+      const cant = Number(quantity);
+      if (isNaN(cant) || cant <= 0) {
+        console.warn('⚠️ Cantidad inválida, omitido:', it);
+        continue;
+      }
+
+      // 🔥 Parsear fecha_dia si viene como string
+      let fechaDiaFinal = null;
+      if (fecha_dia) {
+        const parsed = dayjs(fecha_dia);
+        if (parsed.isValid()) {
+          fechaDiaFinal = parsed.toDate();
+        }
+      }
+
+      // 🔥 Si no viene fecha_dia pero sí dia, calcular desde fecha_entrega
+      if (!fechaDiaFinal && dia) {
+        const diasValidos = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+        const diaNorm = normalizeDia(dia);
+        const idx = diasValidos.indexOf(diaNorm);
+        
+        if (idx !== -1) {
+          const fechaBase = dayjs(order.fecha_entrega).tz('America/Argentina/Buenos_Aires');
+        const lunes = fechaBase.startOf('isoWeek'); 
+          fechaDiaFinal = lunes.add(idx, 'day').startOf('day').toDate();
+        }
+      }
+
+      // 🔥 Determinar nombre final
+      let nombreFinal = item_name;
+      if (!nombreFinal) {
+        if (item_type === 'tarta') {
+          const res = await client.query(
+            'SELECT nombre FROM tartas WHERE key = $1 OR nombre = $1 LIMIT 1',
+            [item_id]
+          );
+          nombreFinal = res.rows[0]?.nombre || String(item_id);
+        } else {
+          nombreFinal = `ID:${item_id}`;
+        }
+      }
+
+      // 🔥 Insertar item
+      await client.query(`
+        INSERT INTO order_items (
+          order_id, item_type, item_id, item_name, quantity, dia, fecha_dia, precio_unitario
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        orderId,
+        item_type,
+        item_id,
+        nombreFinal,
+        cant,
+        dia ? normalizeDia(dia) : null,
+        fechaDiaFinal,
+        it.precio_unitario ?? null
+      ]);
+
+      inserted++;
+    }
+
+    // 🔥 Recalcular total
+  // 🔥 Recalcular total - FILTRAR items con cantidad 0
+const { rows: nuevosItems } = await client.query(
+  'SELECT item_type, item_id, quantity, dia FROM order_items WHERE order_id = $1 AND quantity > 0',
+  [orderId]
+);
+
+    const nuevoTotal = await calcularTotalPedido(nuevosItems);
+    await client.query('UPDATE orders SET total = $1 WHERE id = $2', [nuevoTotal, orderId]);
+
     await client.query('COMMIT');
-    res.json({ message: 'Ítems actualizados correctamente' });
-  } catch (err) {
+
+    // 🔥 Obtener pedido actualizado
+    const pedidoActualizado = await getPedidoConItemsById(orderId);
+
+    return res.json({
+      success: true,
+      resumen: { orderId, inserted, nuevoTotal },
+      pedido: pedidoActualizado
+    });
+
+  } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error al actualizar ítems:', err);
-    res.status(500).json({ error: 'Error al actualizar ítems', details: err.message });
+    console.error('❌ Error en updateOrderItemsController:', error);
+    return res.status(500).json({ error: 'Error actualizando los items', details: error.message });
   } finally {
     client.release();
   }
 };
+
+
+const calcularTotalPedido = async (items) => {
+  const precios = await getConfig('precios');
+  if (!precios) throw new Error('❌ No hay configuración de precios');
+
+  let total = 0;
+  let totalPlatos = 0;
+  let diasConPlato = new Set();
+
+  for (const item of items) {
+    const cantidad = parseInt(item.quantity) || 0;
+
+    switch (item.item_type) {
+      case 'daily':
+      case 'fijo':
+      case 'especial':  // ⬅️ AGREGAR
+      case 'company':   // ⬅️ AGREGAR
+        totalPlatos += cantidad;
+        total += cantidad * precios.plato;
+        diasConPlato.add(item.dia);
+        break;
+
+      case 'extra':
+        const precioExtra = {
+          1: precios.postre,
+          2: precios.ensalada,
+          3: precios.proteina
+        }[item.item_id];
+
+        if (precioExtra) {
+          total += cantidad * precioExtra;
+        }
+        break;
+
+      case 'tarta':
+        total += cantidad * precios.tarta;
+        break;
+
+      case 'skip':
+        break;
+
+      default:
+        console.warn('⚠️ Tipo de item desconocido:', item);
+    }
+  }
+
+  total += diasConPlato.size * precios.envio;
+
+  if (totalPlatos >= precios.umbral_descuento) {
+    total -= totalPlatos * precios.descuento_por_plato;
+  }
+
+  return total;
+};
+
+

@@ -5,6 +5,8 @@ import {
   getUserProfileById
 } from '../models/userProfile.model.js';
 
+import { updateUserBasicInfo } from '../models/user.model.js'; // ✅ CORRECTO
+
 
 
 export const getMyProfile = async (req, res) => {
@@ -52,7 +54,7 @@ export const getMyProfile = async (req, res) => {
 // Crear perfil
 export const createMyProfile = async (req, res) => {
   const userId = req.user.id;
-  const { telefono, direccion_principal, direccion_alternativa, apellido } = req.body;
+const { telefono, direccion_principal, direccion_alternativa } = req.body;
 
   try {
     const created = await createUserProfile({
@@ -60,7 +62,7 @@ export const createMyProfile = async (req, res) => {
       telefono,
       direccion_principal,
       direccion_alternativa,
-      apellido
+    
     });
 
     res.status(201).json({ message: 'Perfil creado', profile: created });

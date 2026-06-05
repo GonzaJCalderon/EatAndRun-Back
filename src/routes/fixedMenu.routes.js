@@ -13,26 +13,118 @@ import { uploadPlato } from '../middlewares/upload.middleware.js'; // ✅ correg
 
 const router = express.Router();
 
-router.get('/fixed', verifyToken, getFixedMenu);
+/**
+ * @swagger
+ * tags:
+ *   name: FixedMenu
+ *   description: Gestión de menú fijo
+ */
 
+/**
+ * @swagger
+ * /api/fixed:
+ *   get:
+ *     summary: Obtener ítems del menú fijo
+ *     tags: [FixedMenu]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Lista de ítems fijos
+ */
+router.get('/', verifyToken, getFixedMenu);
+
+// ✅ corregido
+// ✅ corregido
+/**
+ * @swagger
+ * /api/fixed:
+ *   post:
+ *     summary: Crear ítem del menú fijo
+ *     tags: [FixedMenu]
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Ítem creado
+ */
 router.post(
-  '/fixed',
+  '/',
   verifyToken,
   authorizeRoles('admin', 'moderador'),
-  uploadPlato.single('image'), // ✅ corregido
+  uploadPlato.single('image'),
   createFixedItem
 );
 
+
+/**
+ * @swagger
+ * /api/fixed/{id}:
+ *   put:
+ *     summary: Actualizar ítem del menú fijo
+ *     tags: [FixedMenu]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Ítem actualizado
+ */
 router.put(
-  '/fixed/:id',
+  '/:id',
   verifyToken,
   authorizeRoles('admin', 'moderador'),
   uploadPlato.single('image'), // 👈 AÑADILO AQUÍ
   updateFixedItem
 );
-router.delete('/fixed/:id', verifyToken, authorizeRoles('admin', 'moderador'), deleteFixedItem);
+/**
+ * @swagger
+ * /api/fixed/{id}:
+ *   delete:
+ *     summary: Eliminar ítem del menú fijo
+ *     tags: [FixedMenu]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Ítem eliminado
+ */
+router.delete('/:id', verifyToken, authorizeRoles('admin', 'moderador'), deleteFixedItem);
 // En lugar de repetir /fixed
-router.get('/fixed/by-role', verifyToken, getFixedMenuByRole);
+router.get('/by-role', verifyToken, getFixedMenuByRole);
 
 
 

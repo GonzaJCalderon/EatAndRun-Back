@@ -1,3 +1,5 @@
+// controllers/order.controller.js
+
 import { pool } from '../db/index.js';
 import {
   assignOrderToDelivery,
@@ -7,6 +9,8 @@ import {
   getPedidosConItems,
   getAllOrders as getAllOrdersFromDB
 } from '../models/order.model.js';
+import { parsePedido, agruparItemsPorTipo } from '../utils/order.utils.js';
+
 
 
 
@@ -101,14 +105,19 @@ export const selfAssignOrder = async (req, res) => {
   }
 };
 
+
+// Obtener todos los pedidos (admin/moderador)
 export const getAllOrders = async (req, res) => {
   try {
-    const pedidos = await getPedidosConItems(); // sin filtro
+    // ✅ usa la función que ya resuelve nombres y fechas por día
+    const pedidos = await getPedidosConItems(); 
     res.json(pedidos);
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener todos los pedidos', details: err.message });
+    console.error('❌ Error al obtener pedidos completos:', err);
+    res.status(500).json({ error: 'Error al obtener pedidos completos', details: err.message });
   }
 };
+
 
 
 export const updateDeliveryOrderStatus = async (req, res) => {

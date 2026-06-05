@@ -1,86 +1,198 @@
 import { pool } from '../db/index.js';
+import dayjs from '../utils/tiempo.js';
+import { getSemanasActivas } from '../models/semanas.model.js';
+import { pickFechaDesdePedidoBody, clampToSemanasActivas } from '../utils/fechaspedidos.js';
 
-export const createOrder = async (userId, items, total, {
-  fechaEntrega,
-  observaciones,
-  metodoPago,
-  tipoMenu,
-  comprobanteUrl = null
-}) => {
+// ✅ createOrder con fecha REAL por ítem (platos + tartas
+
+export const createOrder = async (
+  userId,
+  items,
+  total,
+  { fechaEntrega, observaciones, metodoPago, tipoMenu, comprobanteUrl = null }
+) => {
   const client = await pool.connect();
+  const TZ = 'America/Argentina/Buenos_Aires';
+
+  const normalizeDia = (d) =>
+    String(d || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
 
   try {
     await client.query('BEGIN');
 
-    // 1️⃣ Insertar orden base
-    const orderInsert = await client.query(`
-      INSERT INTO orders (user_id, total, fecha_entrega, observaciones, metodo_pago, tipo_menu, comprobante_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id
-    `, [userId, total, fechaEntrega, observaciones, metodoPago, tipoMenu, comprobanteUrl]);
-
-    const orderId = orderInsert.rows[0].id;
-
-    // 2️⃣ Insertar cada item con nombre resuelto
-    for (const item of items) {
-      const { item_type, item_id, quantity, dia, precio } = item;
-
-      if (!['daily', 'fijo', 'extra', 'tarta', 'skip'].includes(item_type)) {
-        console.warn(`⚠️ Tipo de ítem no soportado: ${item_type}`);
-        continue;
-      }
-
-      let finalItemId = null;
-      let finalItemName = null;
-
-      // 🥧 Casos especiales como "tarta" que usan string como nombre
-      if (item_type === 'tarta' || item_type === 'skip') {
-        finalItemName = String(item_id);
-      }
-
-      // 📦 Si es un ID numérico (daily, fijo, extra), obtener nombre desde DB
-      if (['daily', 'fijo', 'extra'].includes(item_type)) {
-        finalItemId = !isNaN(parseInt(item_id)) ? parseInt(item_id) : null;
-
-        const tabla =
-          item_type === 'daily' ? 'daily_menu' :
-          item_type === 'fijo' ? 'fixed_menu' :
-          item_type === 'extra' ? 'menu_extras' :
-          null;
-
-        if (tabla && finalItemId !== null) {
-          const resNombre = await client.query(`SELECT name FROM ${tabla} WHERE id = $1`, [finalItemId]);
-          finalItemName = resNombre.rows[0]?.name || `ID:${finalItemId}`;
+    // ✅ 1) Tomar la fecha de entrega MÁS CERCANA de los ítems enviados
+    const fechasItems = items
+      .map((i) => {
+        if (!i.dia) return null;
+        const partes = String(i.dia).split('-'); // ej "jueves-2025-10-23"
+        if (partes.length === 4) {
+          return dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+            .tz(TZ)
+            .startOf('day');
         }
-      }
+        return null;
+      })
+      .filter((f) => f && f.isValid());
 
-      // 💾 Insertar el ítem final
-      await client.query(`
-        INSERT INTO order_items (order_id, item_type, item_id, item_name, quantity, dia, precio_unitario)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        orderId,
-        item_type,
-        finalItemId,
-        finalItemName,
-        quantity,
-        dia || null,
-        precio || null
-      ]);
+    if (!fechasItems.length) {
+      throw new Error('⚠ No se pudo determinar ninguna fecha de entrega');
     }
 
+    let fechaEntregaFinal = dayjs.min(...fechasItems);
+
+    const editableHasta = fechaEntregaFinal
+  .subtract(1, 'day')
+  .hour(23).minute(59).second(59)
+  .toDate();
+
+
+    // ✅ 2) Verificar semana activa
+    const semanasActivas = await getSemanasActivas();
+    if (semanasActivas.length === 0)
+      throw new Error('⚠ No hay semanas habilitadas');
+
+    let semanaSel = semanasActivas.find((s) =>
+      fechaEntregaFinal.isBetween(
+        dayjs(s.semana_inicio).startOf('day'),
+        dayjs(s.semana_fin).endOf('day'),
+        'day',
+        '[]'
+      )
+    );
+
+    if (!semanaSel) {
+      const itemSem = items.find((i) => i.semana_id);
+      if (itemSem) {
+        semanaSel = semanasActivas.find((s) => s.id === itemSem.semana_id);
+      }
+    }
+
+    if (!semanaSel) {
+      throw new Error(
+        `⚠ La fecha ${fechaEntregaFinal.format('YYYY-MM-DD')} no coincide con ninguna semana habilitada`
+      );
+    }
+
+    // Ajuste adicional si está fuera
+    const semanaInicio = dayjs(semanaSel.semana_inicio).tz(TZ).startOf('day');
+    const semanaFin = dayjs(semanaSel.semana_fin).tz(TZ).endOf('day');
+
+    if (fechaEntregaFinal.isBefore(semanaInicio)) fechaEntregaFinal = semanaInicio;
+    if (fechaEntregaFinal.isAfter(semanaFin)) fechaEntregaFinal = semanaFin;
+
+    const fechaEntregaDate = fechaEntregaFinal.toDate();
+
+    // ✅ 3) Determinar fecha de entrega de TARTAS (si existen)
+    let fechaEntregaTartas = null;
+    for (const item of items) {
+      if (item.item_type === 'tarta' && item.dia) {
+        const partes = item.dia.split('-'); // ej "tartas-2025-10-20"
+        if (partes.length === 4) {
+          const f = dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`, 'YYYY-MM-DD')
+            .tz(TZ)
+            .startOf('day');
+          if (f.isValid()) {
+            fechaEntregaTartas = f.toDate();
+            break;
+          }
+        }
+      }
+    }
+
+    // ⛔ Si el front no puso fecha a la tarta → se entrega el viernes a las 12
+    if (!fechaEntregaTartas && items.some((i) => i.item_type === 'tarta')) {
+      fechaEntregaTartas = semanaInicio.add(4, 'day').hour(12).toDate();
+    }
+
+    // ✅ 4) Insertar orden principal
+ const respOrder = await client.query(
+  `
+  INSERT INTO orders (
+    user_id, total, fecha_entrega, observaciones,
+    metodo_pago, tipo_menu, comprobante_url, fecha_entrega_tartas, editable_hasta
+  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  RETURNING id
+`,
+[
+  userId,
+  total,
+  fechaEntregaDate,
+  observaciones || '',
+  metodoPago || null,
+  tipoMenu || 'usuario',
+  comprobanteUrl || null,
+  fechaEntregaTartas,
+  editableHasta // 👈 este es el nuevo valor
+]
+);
+
+
+    const orderId = respOrder.rows[0].id;
+
+    // ✅ 5) Insertar ITEMS (con fecha exacta que seleccionó el usuario)
+   for (const item of items) {
+  let fechaDia = null;
+  let diaFinal = null;
+  const tipo = String(item.item_type || '').toLowerCase();
+
+  if (item.fecha_dia) {
+    const f = dayjs(item.fecha_dia).tz(TZ);
+    if (f.isValid()) fechaDia = f.startOf('day').toDate();
+  }
+
+  if (!fechaDia && item.dia) {
+    const partes = item.dia.split('-');
+    if (partes.length === 4) {
+      const parsed = dayjs(`${partes[1]}-${partes[2]}-${partes[3]}`).tz(TZ);
+      if (parsed.isValid()) fechaDia = parsed.startOf('day').toDate();
+    }
+  }
+
+  // ✅ Agregá esta parte para asegurar que "dia" se guarda
+  if (!diaFinal && item.dia) {
+    const diaTexto = String(item.dia).split('-')[0];
+    diaFinal = diaTexto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  // ... y luego insertás
+  await client.query(`
+    INSERT INTO order_items (
+      order_id, item_type, item_id, item_name,
+      quantity, dia, precio_unitario, fecha_dia
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  `, [
+    orderId,
+    tipo,
+    tipo === 'tarta' ? null : Number(item.item_id),
+    tipo === 'tarta' ? String(item.item_id) : String(item.item_name || `ID:${item.item_id}`),
+    Number(item.quantity),
+    diaFinal,         // ✅ ahora sí se guarda el día correctamente
+    item.precio ?? null,
+    fechaDia
+  ]);
+}
+
+
     await client.query('COMMIT');
-
-    return { id: orderId, message: 'Pedido creado correctamente' };
-
+    return { id: orderId, message: '✅ Pedido creado correctamente' };
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('❌ Error al crear la orden en DB:', err);
+    console.error('❌ Error createOrder:', err);
     throw err;
   } finally {
     client.release();
   }
 };
+
+
 
 
 export const getOrdersByUser = async (userId) => {
@@ -90,6 +202,7 @@ export const getOrdersByUser = async (userId) => {
   );
   return result.rows;
 };
+
 
 export const getAllOrders = async () => {
   const result = await pool.query(`
@@ -105,36 +218,46 @@ export const getAllOrders = async () => {
       o.delivery_name,
       o.delivery_phone,
 
-      u.name AS nombre,
+      u.name      AS nombre,
       u.last_name AS apellido,
       u.email,
       up.telefono,
       up.direccion_principal,
-      up.direccion_secundaria,
+      up.direccion_alternativa,
+      up.direccion_alternativa AS direccion_secundaria,  -- 👈 ojo, coma acá
 
-      json_agg(json_build_object(
-        'item_type', oi.item_type,
-        'item_id', oi.item_id,
-        'item_name',
-          CASE 
-            WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' 
-              THEN (SELECT name FROM menu_daily WHERE id = oi.item_id::INTEGER)
-            WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' 
-              THEN (SELECT name FROM menu_fixed WHERE id = oi.item_id::INTEGER)
-            WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' 
-              THEN (SELECT name FROM menu_extras WHERE id = oi.item_id::INTEGER)
-            WHEN oi.item_type = 'tarta' 
-              THEN oi.item_id::TEXT
-            ELSE oi.item_id
-          END,
-        'quantity', oi.quantity,
-        'dia', oi.dia
-      )) AS items
+      COALESCE(
+        json_agg(DISTINCT jsonb_build_object(
+          'item_type',  oi.item_type,
+          'item_id',    oi.item_id,
+          'item_name',
+            CASE 
+              WHEN oi.item_type = 'daily' THEN md.name
+              WHEN oi.item_type = 'fijo'  THEN mf.name
+              WHEN oi.item_type = 'extra' THEN me.name
+              WHEN oi.item_type = 'tarta' THEN oi.item_id::text
+              ELSE oi.item_id
+            END,
+          'quantity',   oi.quantity,
+          'dia',        oi.dia,
+          'fecha_dia',  oi.fecha_dia
+        )) FILTER (WHERE oi.id IS NOT NULL), '[]'::json
+      ) AS items
 
     FROM orders o
-    JOIN users u ON o.user_id = u.id
+    JOIN users u          ON o.user_id = u.id
     LEFT JOIN user_profiles up ON u.id = up.user_id
-    LEFT JOIN order_items oi ON o.id = oi.order_id
+    LEFT JOIN public.order_items oi ON o.id = oi.order_id
+
+    LEFT JOIN menu_daily md ON md.id = 
+      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+    LEFT JOIN menu_fixed mf ON mf.id = 
+      CASE WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+    LEFT JOIN menu_extras me ON me.id = 
+      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+      LEFT JOIN menu_especiales ms ON ms.id = 
+  CASE WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN oi.item_id::int ELSE NULL END
+
 
     GROUP BY 
       o.id,
@@ -148,10 +271,11 @@ export const getAllOrders = async () => {
       o.delivery_name,
       o.delivery_phone,
       u.name,
-      u.last_name,
+      u.last_name,                -- 👈 sin AS acá
       u.email,
       up.telefono,
       up.direccion_principal,
+      up.direccion_alternativa,
       up.direccion_secundaria
 
     ORDER BY o.fecha_entrega DESC
@@ -225,14 +349,16 @@ export const getOrdersByDelivery = async (deliveryId) => {
       json_agg(json_build_object(
         'item_type', oi.item_type,
         'item_id', oi.item_id,
-        'item_name',
-          CASE 
-            WHEN oi.item_type = 'daily' THEN md.name
-            WHEN oi.item_type = 'fijo' THEN mf.name
-            WHEN oi.item_type = 'extra' THEN me.name
-            WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-            ELSE NULL
-          END,
+       'item_name',
+  CASE 
+    WHEN oi.item_type = 'daily' THEN md.name
+    WHEN oi.item_type = 'fijo'  THEN mf.name
+    WHEN oi.item_type = 'extra' THEN me.name
+    WHEN oi.item_type = 'especial' THEN ms.name  -- ✅ agregado
+    WHEN oi.item_type = 'tarta' THEN oi.item_id::text
+    ELSE oi.item_id
+  END,
+
         'quantity', oi.quantity
       )) AS items
     FROM orders o
@@ -369,7 +495,6 @@ export const getUnassignedOrdersFromDB = async () => {
 
 
 // Función utilitaria
-// Función utilitaria
 function parsePedido(row) {
   const pedido = {
     diarios: {},
@@ -386,38 +511,65 @@ function parsePedido(row) {
     if (tipo === 'tarta') {
       pedido.tartas[nombre] = (pedido.tartas[nombre] || 0) + cantidad;
     } else if (dia) {
-      if (tipo === 'daily' || tipo === 'fijo') {
-        if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
-        pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
-      } else if (tipo === 'extra') {
+if (['daily', 'fijo', 'especial', 'company'].includes(tipo)) {
+  if (!pedido.diarios[dia]) pedido.diarios[dia] = {};
+  pedido.diarios[dia][nombre] = (pedido.diarios[dia][nombre] || 0) + cantidad;
+}
+
+ else if (tipo === 'extra') {
         if (!pedido.extras[dia]) pedido.extras[dia] = {};
         pedido.extras[dia][nombre] = (pedido.extras[dia][nombre] || 0) + cantidad;
       }
     }
   });
 
-  return {
+
+ // ✅ Mapeo correcto de día → fecha real
+const fechaPorDia = {};
+row.items.forEach((item) => {
+  if (item.fecha_dia) {
+    const fecha = dayjs(item.fecha_dia);
+    if (fecha.isValid()) {
+      const nombreDia = fecha.format('dddd'); // ej: miércoles
+      if (!fechaPorDia[nombreDia]) {
+        fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
+      }
+    }
+  }
+});
+pedido.fecha_dia_por_dia = fechaPorDia;
+
+
+    return {
     id: row.id,
     estado: row.estado,
     fecha: row.fecha_entrega,
     observaciones: row.observaciones,
     comprobanteUrl: row.comprobante_url,
     comprobanteNombre: row.comprobante_nombre,
-    metodoPago: row.metodo_pago || null, // ✅ Añadido campo clave
+    metodoPago: row.metodo_pago || null,
+
+    // ⬇️⬇️ REEMPLAZAR ESTE BLOQUE "usuario" ⬇️⬇️
     usuario: {
-      nombre: `${row.nombre} ${row.apellido || ''}`.trim(), // por si no hay apellido
+      nombre: row.nombre || '',
+      apellido: row.apellido || '', // ✅ viene de u.last_name AS apellido
       email: row.email,
-      telefono: row.telefono,
-      direccion: row.direccion_principal,
-      direccionSecundaria: row.direccion_secundaria || ''
+      telefono: row.telefono || '',
+      direccion: row.direccion_principal || '',
+      // ✅ prioriza direccion_alternativa, mantiene compat con direccion_secundaria
+      direccionSecundaria: row.direccion_alternativa || row.direccion_secundaria || ''
     },
+    // ⬆️⬆️ REEMPLAZAR ESTE BLOQUE "usuario" ⬆️⬆️
+
     delivery: {
       nombre: row.delivery_name || null,
       telefono: row.delivery_phone || null
     },
     pedido
   };
+
 }
+
 
 
 
@@ -429,61 +581,91 @@ export const getOrdersByDeliveryId = async (deliveryId) => {
 };
 
 
+
+
 export const getPedidosConItems = async (filtros = '', valores = []) => {
   // 1️⃣ Obtener todos los pedidos
-  const pedidosRes = await pool.query(`
-    SELECT 
-      o.*,
-      u.name AS usuario_nombre,
-      u.email AS usuario_email,
-      u.role AS usuario_rol,
-      d.name AS repartidor_nombre,
-      up.telefono AS usuario_telefono,
-      up.direccion_principal AS direccion_principal,
-      up.direccion_secundaria AS direccion_secundaria,
-      up.apellido AS usuario_apellido -- ✅ Agregado apellido
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN users d ON o.assigned_to = d.id
-    LEFT JOIN user_profiles up ON up.user_id = u.id
-    ${filtros}
-    ORDER BY o.created_at DESC
-  `, valores);
+ const pedidosRes = await pool.query(`
+  SELECT 
+    o.*,
+    o.fecha_entrega_tartas,
+    o.nota_admin,
+    u.name      AS usuario_nombre,
+    u.email     AS usuario_email,
+    u.role_id   AS usuario_rol,         -- 👈 role_id (no u.role)
+    d.name      AS repartidor_nombre,
+    up.telefono AS usuario_telefono,
+    up.direccion_principal AS direccion_principal,
+    up.direccion_secundaria AS direccion_secundaria,
+    u.last_name AS usuario_apellido,    -- 👈 apellido viene de users
+    em.razon_social AS empresa_nombre
+  FROM orders o
+  LEFT JOIN users u         ON o.user_id     = u.id
+  LEFT JOIN users d         ON o.assigned_to = d.id
+  LEFT JOIN user_profiles up ON up.user_id   = u.id
+  LEFT JOIN empresa_users eu ON eu.user_id   = u.id
+  LEFT JOIN empresas em      ON em.id        = eu.empresa_id
+  ${filtros}
+  ORDER BY o.created_at DESC
+`, valores);
+
 
   const pedidos = pedidosRes.rows;
   if (pedidos.length === 0) return [];
 
   // 2️⃣ Obtener todos los ítems en una sola query
   const pedidoIds = pedidos.map(p => p.id);
-  const itemsRes = await pool.query(`
-    SELECT 
-      oi.order_id,
-      oi.item_type, 
-      oi.item_id, 
+  // ✅ Verificar que la columna 'fecha_dia' exista antes de usarla
+const check = await pool.query(`
+  SELECT column_name
+  FROM information_schema.columns
+  WHERE table_name = 'order_items'
+    AND column_name = 'fecha_dia';
+`);
+
+console.log('🧪 ¿fecha_dia existe en order_items?', check.rows.length > 0);
+const debugDb = await pool.query(`SELECT current_database(), current_schema();`);
+console.log('📍 DB actual:', debugDb.rows[0]);
+
+const itemsRes = await pool.query(`
+  SELECT 
+    oi.order_id,
+    oi.item_type, 
+    oi.item_id, 
+    oi.item_name,
+    oi.quantity, 
+    oi.dia,
+    oi.precio_unitario,
+    oi.fecha_dia,
+
+    COALESCE(
+      CASE 
+        WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
+        WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
+        WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN mf.name
+        WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN ms.name
+        WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+        ELSE NULL
+      END,
       oi.item_name,
-      oi.quantity, 
-      oi.dia,
-      COALESCE(
-        CASE 
-          WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
-          WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
-          WHEN oi.item_type = 'fijo'  AND oi.item_id ~ '^[0-9]+$' THEN mf.name
-          WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
-          ELSE NULL
-        END,
-        oi.item_name,
-        CONCAT('ID:', oi.item_id),
-        'Desconocido'
-      ) AS resolved_name
-    FROM order_items oi
-    LEFT JOIN menu_extras me ON me.id = 
-      CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_daily md ON md.id = 
-      CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    LEFT JOIN menu_fixed mf ON mf.id = 
-      CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-    WHERE oi.order_id = ANY($1::int[])
-  `, [pedidoIds]);
+      CONCAT('ID:', oi.item_id),
+      'Desconocido'
+    ) AS resolved_name
+
+  FROM public.order_items oi
+
+  LEFT JOIN menu_extras me ON me.id = 
+    CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_daily md ON md.id = 
+    CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_fixed mf ON mf.id = 
+    CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+  LEFT JOIN menu_especiales ms ON ms.id = 
+    CASE WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
+
+  WHERE oi.order_id = ANY($1::int[])
+`, [pedidoIds]);
+
 
   // 3️⃣ Agrupar ítems por pedido
   const itemsPorPedido = {};
@@ -493,34 +675,60 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
     itemsPorPedido[id].push(item);
   }
 
-  // 4️⃣ Armar la estructura final
+  // 4️⃣ Armar estructura final con fecha_dia_por_dia
   const pedidosConItems = pedidos.map(pedido => {
     const items = itemsPorPedido[pedido.id] || [];
 
-    return {
-      ...pedido,
-      usuario: {
-        nombre: pedido.usuario_nombre,
-        apellido: pedido.usuario_apellido || '', // ✅ agregado apellido
-        email: pedido.usuario_email,
-        telefono: pedido.usuario_telefono || '',
-        direccion: pedido.direccion_principal || '',
-        direccionSecundaria: pedido.direccion_secundaria || '',
-        rol: pedido.usuario_rol
-      },
-      repartidor: pedido.repartidor_nombre || null,
-      pedido: agruparItemsPorTipo(items),
-      estado: pedido.status,
-      fecha: pedido.fecha_entrega,
-      observaciones: pedido.observaciones,
-      comprobanteUrl: pedido.comprobante_url,
-      comprobanteNombre: pedido.comprobante_nombre,
-      tipo_menu: pedido.tipo_menu || 'usuario'
-    };
-  });
+    // 🗓️ Mapear fechas de entrega por día textual
+   // ✅ Día → fecha real basado en fecha_dia, NO en el string item.dia
+const fechaPorDia = {};
+for (const item of items) {
+  if (item.fecha_dia) {
+    const fecha = dayjs(item.fecha_dia);
+    if (fecha.isValid()) {
+      const nombreDia = fecha.format('dddd'); // martes, miércoles, etc.
+      if (!fechaPorDia[nombreDia]) {
+        fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
+      }
+    }
+  }
+}
 
+const pedidoAgrupado = agruparItemsPorTipo(items);
+pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
+
+
+    return {
+  ...pedido,
+  usuario: {
+    nombre: pedido.usuario_nombre,
+    apellido: pedido.usuario_apellido || '',
+    email: pedido.usuario_email,
+    telefono: pedido.usuario_telefono || '',
+    direccion: pedido.direccion_principal || '',
+    direccionSecundaria: pedido.direccion_secundaria || '',
+    rol: pedido.usuario_rol
+  },
+  empresa_nombre: pedido.empresa_nombre || null,
+  repartidor: pedido.repartidor_nombre || null,
+  pedido: pedidoAgrupado,
+  estado: pedido.status,
+  fecha: pedido.fecha_entrega,
+  fecha_entrega_tartas: pedido.fecha_entrega_tartas, // ✅ esta es la línea que necesitás
+  observaciones: pedido.observaciones,
+  nota_admin: pedido.nota_admin || null,
+  comprobanteUrl: pedido.comprobante_url,
+  comprobanteNombre: pedido.comprobante_nombre,
+  tipo_menu: pedido.tipo_menu || 'usuario'
+};
+
+  });
+ 
   return pedidosConItems;
 };
+
+
+
 
 
 
@@ -536,16 +744,26 @@ function agruparItemsPorTipo(items) {
     const nombre = item.resolved_name || item.item_name || 'Desconocido';
     const tipo = item.item_type;
     const dia = item.dia || 'sin_dia';
+    const fecha = item.fecha_dia ? dayjs(item.fecha_dia) : null;
 
     const cantidad = Number(item.quantity);
     if (isNaN(cantidad)) continue;
 
-    if (['daily', 'fijo'].includes(tipo)) {
-      if (!agrupados.diarios[dia]) agrupados.diarios[dia] = {};
-      agrupados.diarios[dia][nombre] = (agrupados.diarios[dia][nombre] || 0) + cantidad;
+    // 🧠 Creamos clave combinada: "lunes 28/07"
+    let claveDia = dia;
+    if (fecha && dia !== 'sin_dia') {
+      const nombreDia = fecha.format('dddd'); // lunes, martes, etc.
+      const fechaTexto = fecha.format('DD/MM');
+      claveDia = `${nombreDia} ${fechaTexto}`;
+    }
+
+  if (['daily', 'fijo', 'especial'].includes(tipo)) {
+
+      if (!agrupados.diarios[claveDia]) agrupados.diarios[claveDia] = {};
+      agrupados.diarios[claveDia][nombre] = (agrupados.diarios[claveDia][nombre] || 0) + cantidad;
     } else if (tipo === 'extra') {
-      if (!agrupados.extras[dia]) agrupados.extras[dia] = {};
-      agrupados.extras[dia][nombre] = (agrupados.extras[dia][nombre] || 0) + cantidad;
+      if (!agrupados.extras[claveDia]) agrupados.extras[claveDia] = {};
+      agrupados.extras[claveDia][nombre] = (agrupados.extras[claveDia][nombre] || 0) + cantidad;
     } else if (tipo === 'tarta') {
       agrupados.tartas[nombre] = (agrupados.tartas[nombre] || 0) + cantidad;
     }
@@ -553,7 +771,30 @@ function agruparItemsPorTipo(items) {
 
   return agrupados;
 }
+export const getPedidoConItemsById = async (id) => {
+  const pedidos = await getPedidosConItems('WHERE o.id = $1', [id]);
+  const pedido = pedidos[0] || null;
 
+  if (!pedido) return null;
+
+  // ✅ Extra: historial de estados
+  const result = await pool.query(
+    'SELECT status, changed_at FROM order_status_history WHERE order_id = $1 ORDER BY changed_at ASC',
+    [id]
+  );
+
+  pedido.historialEstados = result.rows;
+
+  return pedido;
+};
+
+export const getPedidosPorEmpresa = async (empresaId) => {
+  // NO agregues otro JOIN, solo el filtro
+  const query = `
+    WHERE eu.empresa_id = $1
+  `;
+  return await getPedidosConItems(query, [empresaId]);
+};
 
 
 

@@ -9,6 +9,14 @@ import {
   verificarCodigoEmpresa
 } from '../controllers/auth.controller.js';
 import { verifyToken } from '../middlewares/auth.middleware.js';
+import rateLimit from 'express-rate-limit';
+
+// Limitador de peticiones para rutas de autenticación sensibles
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // Límite de 10 peticiones por IP por ventana
+  message: { error: 'Demasiados intentos desde esta IP, por favor intente nuevamente en 15 minutos.' }
+});
 
 const router = express.Router();
 
@@ -78,7 +86,7 @@ router.get('/ping', (req, res) => {
   res.json({ message: 'pong 🏓 API funcionando' });
 });
 
-router.post('/register', registerController);
+router.post('/register', authLimiter, registerController);
 
 /**
  * @swagger
@@ -113,7 +121,7 @@ router.post('/register', registerController);
  *       401:
  *         description: Credenciales inválidas
  */
-router.post('/login', loginController);
+router.post('/login', authLimiter, loginController);
 /**
  * @swagger
  * /api/auth/forgot-password:
@@ -135,7 +143,7 @@ router.post('/login', loginController);
  *       200:
  *         description: Email de recuperación enviado
  */
-router.post('/forgot-password', forgotPassword);
+router.post('/forgot-password', authLimiter, forgotPassword);
 
 /**
  * @swagger
@@ -161,7 +169,7 @@ router.post('/forgot-password', forgotPassword);
  *       200:
  *         description: Contraseña restablecida exitosamente
  */
-router.post('/reset-password', resetPassword);
+router.post('/reset-password', authLimiter, resetPassword);
 
 /**
  * @swagger

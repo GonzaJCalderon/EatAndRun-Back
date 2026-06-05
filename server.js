@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { config } from './config/env.js';
 import { pool } from './src/db/index.js';
 import swaggerUi from 'swagger-ui-express';
@@ -37,6 +38,9 @@ app.use(cors({
   origin: true, // 👈 Permite cualquier origen para que el swagger.html compartido funcione
   credentials: true
 }));
+
+// ✅ Configuración de seguridad básica
+app.use(helmet());
 
 // ✅ Middleware para JSON
 app.use(express.json());

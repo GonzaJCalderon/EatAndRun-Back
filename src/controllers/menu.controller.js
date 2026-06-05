@@ -204,8 +204,8 @@ export async function putSemana(req, res) {
     if (dayjs(ff).isBefore(dayjs(fi))) {
       return res.status(400).json({ error: 'El fin no puede ser anterior al inicio' });
     }
-    if (dayjs(ci).isBefore(dayjs(fi)) || dayjs(ci).isAfter(dayjs(ff))) {
-      return res.status(400).json({ error: 'El cierre debe estar entre inicio y fin' });
+    if (dayjs(ci).isAfter(dayjs(ff))) {
+      return res.status(400).json({ error: 'El cierre no puede ser posterior al fin de la semana' });
     }
 
     // Upsert por semana_inicio exacto (sin forzar)

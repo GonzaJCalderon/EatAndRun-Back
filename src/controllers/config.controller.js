@@ -7,6 +7,7 @@ const requiredKeys = [
   'ensalada',
   'proteina',
   'tarta',
+  'menu_especial',
   'descuento_por_plato',
   'umbral_descuento'
 ];

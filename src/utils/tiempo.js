@@ -20,6 +20,7 @@ dayjs.extend(minMax); // ✅ SOLO UNA VEZ, DESPUÉS DEL IMPORT
 dayjs.locale('es');
 
 export const TZ = 'America/Argentina/Buenos_Aires';
+dayjs.tz.setDefault(TZ);
 
 // ✅ "date-only" en AR
 export const toDateOnly = (s) => parseDateOnlyInTZ(s).format('YYYY-MM-DD');

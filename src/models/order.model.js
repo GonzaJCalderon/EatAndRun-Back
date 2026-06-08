@@ -605,13 +605,14 @@ export const getPedidosConItems = async (filtros = '', valores = []) => {
     up.direccion_principal AS direccion_principal,
     up.direccion_secundaria AS direccion_secundaria,
     u.last_name AS usuario_apellido,    -- 👈 apellido viene de users
-    em.razon_social AS empresa_nombre
+    COALESCE(em.razon_social, em_resp.razon_social) AS empresa_nombre
   FROM orders o
   LEFT JOIN users u         ON o.user_id     = u.id
   LEFT JOIN users d         ON o.assigned_to = d.id
   LEFT JOIN user_profiles up ON up.user_id   = u.id
   LEFT JOIN empresa_users eu ON eu.user_id   = u.id
   LEFT JOIN empresas em      ON em.id        = eu.empresa_id
+  LEFT JOIN empresas em_resp ON em_resp.user_id = u.id
   ${filtros}
   ORDER BY o.created_at DESC
 `, valores);

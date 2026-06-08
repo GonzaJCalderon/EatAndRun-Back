@@ -14,7 +14,8 @@ import {
   getAllUsers,
   updateUserRole,
   actualizarEmpleado,
-  getPedidosPorEmpresa
+  getPedidosPorEmpresa,
+  regenerarLinkEmpresaAdmin
 } from '../controllers/admin.controller.js';
 
 import { crearEmpleadoGenerico } from '../controllers/empresa.controller.js';
@@ -162,6 +163,24 @@ router.put('/empresas/:id', actualizarEmpresa);            // ✏️ Actualizar 
  *         description: Empresa eliminada
  */
 router.delete('/empresas/:id', eliminarEmpresa);           // 🗑️ Eliminar empresa
+
+/**
+ * @swagger
+ * /api/admin/empresas/{id}/regenerar-link:
+ *   post:
+ *     summary: Regenerar link de invitación para una empresa
+ *     tags: [Admin - Empresas]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Link regenerado
+ */
+router.post('/empresas/:id/regenerar-link', regenerarLinkEmpresaAdmin);
 
 // 👥 Empleados (como admin)
 /**

@@ -12,6 +12,11 @@ import { createEmpresa } from '../models/empresa.model.js';
 import { pool } from '../db/index.js';
 import { crearEmpleadoGenerico } from '../controllers/empresa.controller.js';
 
+// 🔑 Generar código único para invitación
+const generarCodigoUnico = () => {
+  return Math.random().toString(36).substring(2, 10);
+};
+
 
 
 // ✅ Obtener todos los usuarios (opcional por rol)
@@ -170,6 +175,33 @@ export const eliminarEmpresa = async (req, res) => {
   } catch (err) {
     console.error('❌ Error al eliminar empresa:', err);
     res.status(500).json({ error: 'Error al eliminar empresa' });
+  }
+};
+
+// ✅ Regenerar link de invitación (admin)
+export const regenerarLinkEmpresaAdmin = async (req, res) => {
+  try {
+    const idNum = Number(req.params.id);
+    
+    // Check if it exists
+    const empresa = await pool.query(`SELECT * FROM empresas WHERE id = $1`, [idNum]);
+    if (empresa.rowCount === 0) return res.status(404).json({ error: 'Empresa no encontrada' });
+
+    const nuevoCodigo = generarCodigoUnico();
+    const nuevaExpiracion = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
+
+    await pool.query(
+      `UPDATE empresas SET codigo_invitacion = $1, codigo_expira = $2 WHERE id = $3`,
+      [nuevoCodigo, nuevaExpiracion, idNum]
+    );
+
+    res.json({
+      link: `${process.env.FRONTEND_URL}/registro?empresa=${nuevoCodigo}`,
+      expira: nuevaExpiracion
+    });
+  } catch (err) {
+    console.error('❌ Error al regenerar link admin:', err);
+    res.status(500).json({ error: 'No se pudo regenerar el link' });
   }
 };
 

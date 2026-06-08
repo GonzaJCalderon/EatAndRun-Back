@@ -682,13 +682,18 @@ const itemsRes = await pool.query(`
     // 🗓️ Mapear fechas de entrega por día textual
    // ✅ Día → fecha real basado en fecha_dia, NO en el string item.dia
 const fechaPorDia = {};
+let tartaFecha = null;
 for (const item of items) {
   if (item.fecha_dia) {
     const fecha = dayjs(item.fecha_dia);
     if (fecha.isValid()) {
-      const nombreDia = fecha.format('dddd'); // martes, miércoles, etc.
+      const nombreDia = fecha.format('dddd');
       if (!fechaPorDia[nombreDia]) {
         fechaPorDia[nombreDia] = fecha.format('YYYY-MM-DD');
+      }
+      // Capturar fecha de entrega específica de tartas
+      if (item.item_type === 'tarta' && !tartaFecha) {
+        tartaFecha = fecha.format('YYYY-MM-DD');
       }
     }
   }
@@ -696,6 +701,7 @@ for (const item of items) {
 
 const pedidoAgrupado = agruparItemsPorTipo(items);
 pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
+pedidoAgrupado.tarta_fecha = tartaFecha;
 
 
     return {

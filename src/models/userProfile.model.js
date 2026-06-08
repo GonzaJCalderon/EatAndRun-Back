@@ -24,36 +24,25 @@ export const createUserProfile = async ({ user_id, telefono, direccion_principal
 };
 
 
-export const updateUserProfile = async ({ user_id, telefono, direccion_principal, direccion_alternativa }) => {
-  const updates = [];
-  const values = [];
-  let i = 1;
-
-  if (telefono !== undefined) {
-    updates.push(`telefono = $${i++}`);
-    values.push(telefono);
-  }
-
-  if (direccion_principal !== undefined) {
-    updates.push(`direccion_principal = $${i++}`);
-    values.push(direccion_principal);
-  }
-
-  if (direccion_alternativa !== undefined) {
-    updates.push(`direccion_alternativa = $${i++}`);
-    values.push(direccion_alternativa);
-  }
-
-  if (updates.length === 0) return; // No hay nada que actualizar
-
-  values.push(user_id);
+export const updateUserProfile = async ({ user_id, telefono, direccion_principal, direccion_alternativa, apellido }) => {
   const query = `
-    UPDATE user_profiles
-    SET ${updates.join(', ')}
-    WHERE user_id = $${i}
+    INSERT INTO user_profiles (user_id, telefono, direccion_principal, direccion_alternativa)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (user_id) DO UPDATE SET
+      telefono = EXCLUDED.telefono,
+      direccion_principal = EXCLUDED.direccion_principal,
+      direccion_alternativa = EXCLUDED.direccion_alternativa
   `;
+  await pool.query(query, [
+    user_id,
+    telefono || null,
+    direccion_principal || null,
+    direccion_alternativa || null
+  ]);
 
-  await pool.query(query, values);
+  if (apellido !== undefined) {
+    await pool.query('UPDATE users SET last_name = $1 WHERE id = $2', [apellido, user_id]);
+  }
 };
 
 

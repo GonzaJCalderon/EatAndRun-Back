@@ -1,4 +1,6 @@
 import { pool } from '../db/index.js';
+import { getUserById } from '../services/auth.service.js';
+import { sendOrderConfirmationEmail } from '../services/email.service.js';
 import {
   createOrder,
   getOrdersByUser,
@@ -234,6 +236,13 @@ export const createOrderController = async (req, res) => {
       comprobanteUrl: null,
     });
 
+    // ✉️ Enviar correo de confirmación de forma asíncrona
+    getUserById(userId).then(user => {
+      if (user && user.email) {
+        sendOrderConfirmationEmail(user.email, user.name, order.id, total, items);
+      }
+    }).catch(err => console.error('Error enviando email:', err));
+
     res.status(201).json(order);
 
   } catch (err) {
@@ -380,6 +389,13 @@ export const createOrderWithUploadController = async (req, res) => {
       observaciones,
       comprobanteUrl
     });
+
+    // ✉️ Enviar correo de confirmación de forma asíncrona
+    getUserById(userId).then(user => {
+      if (user && user.email) {
+        sendOrderConfirmationEmail(user.email, user.name, pedido.id, total, itemsParsed);
+      }
+    }).catch(err => console.error('Error enviando email:', err));
 
     res.status(201).json({ message: 'Pedido creado con comprobante', pedido });
   } catch (err) {

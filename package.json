@@ -29,6 +29,7 @@
     "nanoid": "^5.1.5",
     "nodemailer": "^7.0.3",
     "pg": "^8.16.0",
+    "resend": "^6.12.4",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },

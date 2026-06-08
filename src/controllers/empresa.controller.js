@@ -152,7 +152,8 @@ export const getLinkInvitacionEmpresa = async (req, res) => {
     }
 
     // Devolvemos el link completo
-    const link = `${process.env.FRONTEND_URL}/registro?empresa=${codigo_invitacion}`;
+    const baseUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+    const link = `${baseUrl}/registro?empresa=${codigo_invitacion}`;
 
     res.json({
       link,
@@ -278,8 +279,9 @@ export const regenerateLinkInvitacionEmpresa = async (req, res) => {
       [nuevoCodigo, nuevaExpiracion, empresa.id]
     );
 
+    const baseUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
     res.json({
-      link: `${process.env.FRONTEND_URL}/registro?empresa=${nuevoCodigo}`,
+      link: `${baseUrl}/registro?empresa=${nuevoCodigo}`,
       expira: nuevaExpiracion
     });
   } catch (err) {

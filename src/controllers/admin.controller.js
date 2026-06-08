@@ -215,8 +215,9 @@ export const regenerarLinkEmpresaAdmin = async (req, res) => {
       [nuevoCodigo, nuevaExpiracion, idNum]
     );
 
+    const baseUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
     res.json({
-      link: `${process.env.FRONTEND_URL}/registro?empresa=${nuevoCodigo}`,
+      link: `${baseUrl}/registro?empresa=${nuevoCodigo}`,
       expira: nuevaExpiracion
     });
   } catch (err) {

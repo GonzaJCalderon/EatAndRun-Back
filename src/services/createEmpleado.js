@@ -30,7 +30,10 @@ export const crearEmpleadoDesdeEmpresa = async ({ name, apellido, email, empresa
 
     user = result.rows[0];
 
-    await sendWelcomeEmail(email, name, passwordAuto);
+    // ✅ NO BLOQUEANTE: Si el email falla, no rompe la creación del empleado
+    sendWelcomeEmail(email, name, passwordAuto).catch(err => {
+      console.error('✉️ Error enviando email a nuevo empleado:', err?.message || err);
+    });
   }
 
   // Verificamos si ya está asociado a esta empresa

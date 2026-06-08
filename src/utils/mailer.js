@@ -41,7 +41,14 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
   });
 };
 
-export const sendWelcomeEmail = async (to, nombre) => {
+export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
+  const passwordSection = passwordAuto 
+    ? `<p style="margin-top: 15px; background: #e8f5e9; padding: 10px; border-radius: 5px;">
+         Tu contraseña temporal es: <strong>${passwordAuto}</strong><br/>
+         Te recomendamos cambiarla una vez que ingreses.
+       </p>`
+    : '';
+
   await transporter.sendMail({
     from: process.env.EMAIL_FROM || `"Eat & Run" <${process.env.EMAIL_USER}>`,
     to,
@@ -53,6 +60,7 @@ export const sendWelcomeEmail = async (to, nombre) => {
           <div style="padding: 30px; color: #333;">
             <h2 style="color: #4caf50;">Hola ${nombre} 👋</h2>
             <p>Gracias por registrarte en <strong>Eat & Run</strong>. ¡Estamos felices de tenerte con nosotros!</p>
+            ${passwordSection}
             <p>Prepárate para disfrutar de nuestros <strong>menús saludables, rápidos y deliciosos</strong>. 🥗</p>
             <p style="margin-top: 20px;">Si tenés dudas o sugerencias, no dudes en escribirnos.</p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />

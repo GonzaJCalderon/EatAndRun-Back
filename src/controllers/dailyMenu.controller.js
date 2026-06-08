@@ -370,7 +370,7 @@ if (semanaRes.rowCount === 0) {
     }
 
     for (const item of dailyRes.rows) {
-      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const fechaLimpia = dayjs(item.date).utc().format('YYYY-MM-DD');
       const diaNombre = diasMap[dayjs(fechaLimpia).day()];
       if (resultado[diaNombre]) {
         resultado[diaNombre].especiales.push({
@@ -381,7 +381,7 @@ if (semanaRes.rowCount === 0) {
     }
 
     for (const item of specialRes.rows) {
-      const fechaLimpia = dayjs(item.date).tz('America/Argentina/Buenos_Aires', true).format('YYYY-MM-DD');
+      const fechaLimpia = dayjs(item.date).utc().format('YYYY-MM-DD');
       const diaNombre = diasMap[dayjs(fechaLimpia).day()];
       if (resultado[diaNombre]) {
         resultado[diaNombre].especiales.push({

@@ -61,7 +61,7 @@ router.use(verifyToken);
 
 
 // ✅ Crear pedido
-router.post('/', authorizeRoles('usuario', 'empresa'), createOrderController);
+router.post('/', authorizeRoles('usuario', 'empresa', 'admin', 'moderador'), createOrderController);
 
 // ✅ Crear con comprobante
 /**
@@ -85,7 +85,7 @@ router.post('/', authorizeRoles('usuario', 'empresa'), createOrderController);
  *       201:
  *         description: Pedido creado con comprobante
  */
-router.post('/with-comprobante', authorizeRoles('usuario', 'empresa'), uploadComprobante.single('comprobante'), createOrderWithUploadController);
+router.post('/with-comprobante', authorizeRoles('usuario', 'empresa', 'admin', 'moderador'), uploadComprobante.single('comprobante'), createOrderWithUploadController);
 
 // ✅ Obtener pedidos del usuario logueado
 /**
@@ -98,7 +98,7 @@ router.post('/with-comprobante', authorizeRoles('usuario', 'empresa'), uploadCom
  *       200:
  *         description: Lista de pedidos del usuario
  */
-router.get('/', authorizeRoles('usuario', 'empresa'), getUserOrdersController);
+router.get('/', authorizeRoles('usuario', 'empresa', 'admin', 'moderador'), getUserOrdersController);
 
 // ✅ Obtener todos los pedidos (admin/moderador)
 /**

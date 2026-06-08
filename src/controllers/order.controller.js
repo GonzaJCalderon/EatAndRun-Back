@@ -237,9 +237,32 @@ export const createOrderController = async (req, res) => {
     });
 
     // ✉️ Enviar correo de confirmación de forma asíncrona
-    getUserById(userId).then(user => {
+    getUserById(userId).then(async user => {
       if (user && user.email) {
-        sendOrderConfirmationEmail(user.email, user.name, order.id, total, items);
+        try {
+          const pedidoFull = await getPedidoConItemsById(order.id);
+          let itemsParaEmail = items;
+          if (pedidoFull && pedidoFull.pedido) {
+            itemsParaEmail = [];
+            Object.entries(pedidoFull.pedido.diarios || {}).forEach(([dia, platos]) => {
+              Object.entries(platos).forEach(([nombre, cant]) => {
+                itemsParaEmail.push({ item_name: nombre, quantity: cant, dia });
+              });
+            });
+            Object.entries(pedidoFull.pedido.extras || {}).forEach(([dia, exts]) => {
+              Object.entries(exts).forEach(([nombre, cant]) => {
+                const nombreMap = { '1': 'Postre', '2': 'Ensalada', '3': 'Proteína' }[nombre] || nombre;
+                itemsParaEmail.push({ item_name: nombreMap, quantity: cant, dia });
+              });
+            });
+            Object.entries(pedidoFull.pedido.tartas || {}).forEach(([nombre, cant]) => {
+              itemsParaEmail.push({ item_name: nombre, quantity: cant, dia: 'tarta' });
+            });
+          }
+          sendOrderConfirmationEmail(user.email, user.name, order.id, total, itemsParaEmail);
+        } catch (err) {
+          console.error('Error procesando items para email:', err);
+        }
       }
     }).catch(err => console.error('Error enviando email:', err));
 
@@ -391,9 +414,32 @@ export const createOrderWithUploadController = async (req, res) => {
     });
 
     // ✉️ Enviar correo de confirmación de forma asíncrona
-    getUserById(userId).then(user => {
+    getUserById(userId).then(async user => {
       if (user && user.email) {
-        sendOrderConfirmationEmail(user.email, user.name, pedido.id, total, itemsParsed);
+        try {
+          const pedidoFull = await getPedidoConItemsById(pedido.id);
+          let itemsParaEmail = itemsParsed;
+          if (pedidoFull && pedidoFull.pedido) {
+            itemsParaEmail = [];
+            Object.entries(pedidoFull.pedido.diarios || {}).forEach(([dia, platos]) => {
+              Object.entries(platos).forEach(([nombre, cant]) => {
+                itemsParaEmail.push({ item_name: nombre, quantity: cant, dia });
+              });
+            });
+            Object.entries(pedidoFull.pedido.extras || {}).forEach(([dia, exts]) => {
+              Object.entries(exts).forEach(([nombre, cant]) => {
+                const nombreMap = { '1': 'Postre', '2': 'Ensalada', '3': 'Proteína' }[nombre] || nombre;
+                itemsParaEmail.push({ item_name: nombreMap, quantity: cant, dia });
+              });
+            });
+            Object.entries(pedidoFull.pedido.tartas || {}).forEach(([nombre, cant]) => {
+              itemsParaEmail.push({ item_name: nombre, quantity: cant, dia: 'tarta' });
+            });
+          }
+          sendOrderConfirmationEmail(user.email, user.name, pedido.id, total, itemsParaEmail);
+        } catch (err) {
+          console.error('Error procesando items para email:', err);
+        }
       }
     }).catch(err => console.error('Error enviando email:', err));
 

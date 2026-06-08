@@ -29,7 +29,13 @@ export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, tot
         <p style="font-size: 18px; font-weight: bold; margin: 0; text-align: right; color: #333;">Total: $${total}</p>
       </div>
 
-      <p style="font-size: 14px; color: #666; text-align: center;">Si tenés alguna consulta, no dudes en escribirnos.</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">¿Tenés alguna consulta sobre tu pedido o querés hacer un cambio?</p>
+        <a href="https://wa.me/5492612543265?text=Hola,%20tengo%20una%20consulta%20sobre%20mi%20pedido%20%23${orderId}" style="background-color: #25D366; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 15px; display: inline-block;">
+          📱 Contactar por WhatsApp
+        </a>
+      </div>
+
       <p style="font-size: 14px; color: #888; text-align: center;">¡Que lo disfrutes!</p>
     </div>
   `;

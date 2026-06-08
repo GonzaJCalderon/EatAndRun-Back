@@ -805,7 +805,7 @@ export const getPedidoConItemsById = async (id) => {
 export const getPedidosPorEmpresa = async (empresaId) => {
   // NO agregues otro JOIN, solo el filtro
   const query = `
-    WHERE eu.empresa_id = $1
+    WHERE eu.empresa_id = $1 OR em_resp.id = $1
   `;
   return await getPedidosConItems(query, [empresaId]);
 };

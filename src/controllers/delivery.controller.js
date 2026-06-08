@@ -77,7 +77,7 @@ export const markAsDelivered = async (req, res) => {
 export const getUnassignedOrders = async (req, res) => {
   try {
     const pedidos = await getPedidosConItems(`
-      WHERE o.status = 'pendiente' AND o.assigned_to IS NULL
+      WHERE o.status = 'pendiente' AND o.delivery_id IS NULL
     `);
     res.json(pedidos);
   } catch (err) {

@@ -22,7 +22,7 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
               <h2 style="color: #4caf50;">Hola ${nombre} 🔐</h2>
               <p>Recibimos una solicitud para recuperar tu contraseña en <strong>Eat & Run</strong>. Hacé clic en el botón de abajo para restablecerla:</p>
               <div style="text-align: center; margin: 30px 0;">
-                <a href="${link}" style="background-color: #4caf50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                <a href="${link}" style="background-color: #4caf50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; white-space: nowrap;">
                   Restablecer contraseña
                 </a>
               </div>

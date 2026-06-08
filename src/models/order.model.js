@@ -656,9 +656,9 @@ const itemsRes = await pool.query(`
 
   LEFT JOIN menu_extras me ON me.id = 
     CASE WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-  LEFT JOIN menu_daily md ON md.id = 
+  LEFT JOIN daily_menu md ON md.id = 
     CASE WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
-  LEFT JOIN menu_fixed mf ON mf.id = 
+  LEFT JOIN fixed_menu mf ON mf.id = 
     CASE WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END
   LEFT JOIN menu_especiales ms ON ms.id = 
     CASE WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN CAST(oi.item_id AS INTEGER) ELSE NULL END

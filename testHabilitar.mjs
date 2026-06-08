@@ -1,0 +1,5 @@
+fetch('https://eatandrun-back-production.up.railway.app/api/semana/habilitar', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ id: 72 })
+}).then(res => res.json()).then(console.log).catch(console.error);

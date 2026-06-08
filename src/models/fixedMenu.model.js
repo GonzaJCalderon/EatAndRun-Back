@@ -7,16 +7,18 @@ export const getAllFixedMenu = async () => {
 };
 
 // Crear nuevo plato con imagen
-export const createFixedMenuItem = async ({ name, description, price, image_url }) => {
+export const createFixedMenuItem = async ({ name, description, price, image_url, available_days }) => {
   const ALL_ORDERING_ROLES = ['usuario', 'empresa', 'empleado', 'admin'];
+  const days = available_days || ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
   const result = await pool.query(
-    `INSERT INTO fixed_menu (name, description, price, image_url, for_role)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [name, description, price, image_url, ALL_ORDERING_ROLES]
+    `INSERT INTO fixed_menu (name, description, price, image_url, for_role, available_days)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [name, description, price, image_url, ALL_ORDERING_ROLES, days]
   );
   return result.rows[0];
 };
+
 
 // Actualizar plato
 export const updateFixedMenuItem = async (id, fields) => {

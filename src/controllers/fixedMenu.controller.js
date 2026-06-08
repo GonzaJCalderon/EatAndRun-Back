@@ -22,23 +22,25 @@ export const createFixedItem = async (req, res) => {
   console.log('file:', req.file);
 
   try {
-    const { name, description, price, for_role, image_url } = req.body;
-
-    // Más logs para ver los campos
-    console.log('name:', name);
-    console.log('description:', description);
-    console.log('price:', price);
-    console.log('for_role:', for_role);
-    console.log('image_url:', image_url);
+    const { name, description, price, for_role, image_url, available_days } = req.body;
 
     const imageUrl = req.file?.path || image_url || null;
+    let parsedDays = null;
+    if (available_days) {
+      try {
+        parsedDays = JSON.parse(available_days);
+      } catch (e) {
+        parsedDays = null;
+      }
+    }
 
     const item = await createFixedMenuItem({
       name,
       description,
       price,
       for_role,
-      image_url: imageUrl
+      image_url: imageUrl,
+      available_days: parsedDays
     });
 
     res.status(201).json(item);
@@ -48,23 +50,30 @@ export const createFixedItem = async (req, res) => {
   }
 };
 
-
-
-
-
-
 export const updateFixedItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, price } = req.body;
+    const { name, description, price, available_days } = req.body;
     const image_url = req.file?.path || req.body.image_url || null;
 
-    const updated = await updateFixedMenuItem(id, {
+    let parsedDays = undefined;
+    if (available_days) {
+      try {
+        parsedDays = JSON.parse(available_days);
+      } catch (e) {
+        parsedDays = undefined;
+      }
+    }
+
+    const fieldsToUpdate = {
       name,
       description,
       price,
       image_url
-    });
+    };
+    if (parsedDays !== undefined) fieldsToUpdate.available_days = parsedDays;
+
+    const updated = await updateFixedMenuItem(id, fieldsToUpdate);
 
     res.json(updated);
   } catch (err) {

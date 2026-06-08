@@ -140,7 +140,8 @@ export const forgotPassword = async (req, res) => {
 
   const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-  const link = `${process.env.FRONTEND_URL}/reset-password/${token}`;
+  // Forzar el dominio oficial
+  const link = `https://eatandrun.com.ar/reset-password/${token}`;
   await sendResetPasswordEmail(email, user.name, link);
 
   res.json({ message: 'Correo enviado' });

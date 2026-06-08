@@ -139,19 +139,39 @@ export const getEmpresaById = async (req, res) => {
 export const actualizarEmpresa = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, cuit, direccion, telefono } = req.body;
+    const { nombre, cuit, direccion, telefono, responsable_nombre, responsable_email } = req.body;
 
     // Verificar que exista
     const empresa = await pool.query(`SELECT * FROM empresas WHERE id = $1`, [id]);
     if (empresa.rowCount === 0) return res.status(404).json({ error: 'Empresa no encontrada' });
 
-    // Actualizar
+    // Actualizar datos de la empresa
     const update = await pool.query(`
       UPDATE empresas 
       SET razon_social = $1, cuit = $2, direccion = $3, telefono = $4 
       WHERE id = $5 
       RETURNING *
     `, [nombre, cuit, direccion, telefono, id]);
+
+    // Actualizar datos del responsable (usuario)
+    if (responsable_nombre || responsable_email) {
+      const userId = empresa.rows[0].user_id;
+      // Fetch existing user to only update what's provided
+      const userObj = await pool.query(`SELECT name, email FROM users WHERE id = $1`, [userId]);
+      if (userObj.rowCount > 0) {
+        const currentName = userObj.rows[0].name;
+        const currentEmail = userObj.rows[0].email;
+        await pool.query(`
+          UPDATE users 
+          SET name = $1, email = $2 
+          WHERE id = $3
+        `, [
+          responsable_nombre || currentName, 
+          responsable_email || currentEmail, 
+          userId
+        ]);
+      }
+    }
 
     res.json({ message: 'Empresa actualizada', empresa: update.rows[0] });
   } catch (err) {

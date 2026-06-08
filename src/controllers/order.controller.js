@@ -73,58 +73,61 @@ export const getSignedComprobanteUrlController = async (req, res) => {
 export const createOrderController = async (req, res) => {
   const { items, observaciones, metodoPago } = req.body;
 
-  // ✅ Aceptar múltiples variantes de fecha de entrega
   const raw_fecha_entrega =
     req.body.fecha_entrega ||
     req.body.fecha_Entrega ||
     req.body.fecha_entrega_tartas;
 
   if (!raw_fecha_entrega) {
+    console.error('CRITICO 400: Falta la fecha de entrega', req.body);
     return res.status(400).json({ error: 'Falta la fecha de entrega' });
   }
 
-  // ✅ Definir la fecha normalizada
   const fecha_entrega = raw_fecha_entrega;
-
   const userId = req.user.id;
   const tipo_menu = req.user.role || 'usuario';
 
   console.log('📦 Items recibidos en backend:', JSON.stringify(items, null, 2));
 
-  // 🛡️ Validaciones básicas
   if (!items?.length) {
+    console.error('CRITICO 400: Items inválidos o vacíos', items);
     return res.status(400).json({ error: 'Items inválidos o vacíos' });
   }
 
   for (const i of items) {
     if (!i.item_type || typeof i.quantity === 'undefined') {
+      console.error('CRITICO 400: Item malformado', i);
       return res.status(400).json({ error: 'Item malformado', item: i });
     }
 
     const requiereDiaYId = ['daily', 'fijo', 'extra', 'especial'];
 
     if (requiereDiaYId.includes(i.item_type) && (!i.dia || !i.item_id)) {
+      console.error('CRITICO 400: Falta día o item_id en item', i);
       return res.status(400).json({ error: 'Falta día o item_id en item', item: i });
     }
 
     if (i.item_type === 'extra' && (!i.item_id || isNaN(parseInt(i.item_id)))) {
+      console.error('CRITICO 400: Item extra numérico', i);
       return res.status(400).json({ error: 'Item extra con ID no numérico', item: i });
     }
 
     if (i.item_type === 'especial' && isNaN(parseInt(i.item_id))) {
+      console.error('CRITICO 400: Item especial numérico', i);
       return res.status(400).json({ error: 'Item especial con ID no numérico', item: i });
     }
 
     if (i.item_type === 'tarta' && !i.item_id) {
+      console.error('CRITICO 400: Tarta sin item_id', i);
       return res.status(400).json({ error: 'Tarta sin item_id', item: i });
     }
   }
 
   try {
-    // 📅 Calcular lunes de la semana de entrega
     const getLunesFromFecha = (fecha) => {
-      const fechaDayjs = dayjs(fecha).tz(TZ);
-      const dayOfWeek = fechaDayjs.day(); // 0 = domingo
+      // Parsear la fecha directamente en la zona horaria de Buenos Aires
+      const fechaDayjs = dayjs.tz(fecha, TZ);
+      const dayOfWeek = fechaDayjs.day();
       const lunes = dayOfWeek === 0
         ? fechaDayjs.subtract(6, 'day')
         : fechaDayjs.subtract(dayOfWeek - 1, 'day');
@@ -133,7 +136,6 @@ export const createOrderController = async (req, res) => {
 
     const lunesSemana = getLunesFromFecha(fecha_entrega);
 
-    // 🔍 Verificar semana activa
     const result = await pool.query(
       'SELECT habilitado, cierre FROM menu_semana WHERE semana_inicio = $1',
       [lunesSemana]
@@ -141,6 +143,7 @@ export const createOrderController = async (req, res) => {
     const semana = result.rows[0];
 
     if (!semana) {
+      console.error('CRITICO 400: No hay config semana', lunesSemana);
       return res.status(400).json({
         error: `No hay configuración para la semana del ${lunesSemana}. Contacta al administrador.`,
         fecha_entrega,
@@ -149,6 +152,7 @@ export const createOrderController = async (req, res) => {
     }
 
     if (!semana.habilitado) {
+      console.error('CRITICO 400: Semana no habilitada', semana);
       return res.status(400).json({ error: 'La semana no está habilitada' });
     }
 

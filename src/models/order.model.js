@@ -38,6 +38,13 @@ export const createOrder = async (
       .filter((f) => f && f.isValid());
 
     if (!fechasItems.length) {
+      if (fechaEntrega) {
+        const fallbackDate = dayjs.tz(fechaEntrega, TZ).startOf('day');
+        if (fallbackDate.isValid()) fechasItems.push(fallbackDate);
+      }
+    }
+
+    if (!fechasItems.length) {
       throw new Error('⚠ No se pudo determinar ninguna fecha de entrega');
     }
 

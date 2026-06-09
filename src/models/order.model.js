@@ -648,15 +648,18 @@ const itemsRes = await pool.query(`
 
     COALESCE(
       CASE 
+        WHEN oi.item_type = 'extra' AND oi.item_id = '1' THEN '🍰 Postre'
+        WHEN oi.item_type = 'extra' AND oi.item_id = '2' THEN '🥗 Ensalada'
+        WHEN oi.item_type = 'extra' AND oi.item_id = '3' THEN '💪 Proteína'
         WHEN oi.item_type = 'extra' AND oi.item_id ~ '^[0-9]+$' THEN me.name
         WHEN oi.item_type = 'daily' AND oi.item_id ~ '^[0-9]+$' THEN md.name
         WHEN oi.item_type = 'fijo' AND oi.item_id ~ '^[0-9]+$' THEN mf.name
         WHEN oi.item_type = 'especial' AND oi.item_id ~ '^[0-9]+$' THEN ms.name
-        WHEN oi.item_type = 'tarta' THEN oi.item_id::TEXT
+        WHEN oi.item_type = 'tarta' THEN oi.item_name
         ELSE NULL
       END,
       oi.item_name,
-      CONCAT('ID:', oi.item_id),
+      CONCAT('Menú (ID:', oi.item_id, ')'),
       'Desconocido'
     ) AS resolved_name
 

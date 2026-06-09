@@ -10,7 +10,10 @@ import {
   getAllOrders,
   updateDeliveryOrderStatus,
   getDeliveryHistory,
-  buscarDeliveries 
+  buscarDeliveries,
+  getDailyTasks,
+  getUnassignedDailyTasks,
+  updateDailyTaskStatus
 } from '../controllers/delivery.controller.js';
 
 const router = express.Router();
@@ -74,6 +77,9 @@ router.get('/delivery/my-orders', verifyToken, authorizeRoles('delivery'), getMy
  *         description: Pedidos no asignados
  */
 router.get('/delivery/unassigned-orders', verifyToken, authorizeRoles('admin', 'delivery'), getUnassignedOrders);
+router.get('/delivery/daily-tasks', verifyToken, authorizeRoles('delivery'), getDailyTasks);
+router.get('/delivery/daily-tasks/unassigned', verifyToken, authorizeRoles('admin', 'delivery'), getUnassignedDailyTasks);
+router.put('/delivery/daily-tasks/:order_id/:fecha/status', verifyToken, authorizeRoles('admin', 'delivery'), updateDailyTaskStatus);
 
 // ✅ Reclamar pedido
 /**

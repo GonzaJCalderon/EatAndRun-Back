@@ -686,6 +686,20 @@ const itemsRes = await pool.query(`
     itemsPorPedido[id].push(item);
   }
 
+  // 3.5️⃣ Obtener estados de entrega por día
+  const dailyStatusRes = await pool.query(`
+    SELECT order_id, fecha, status, motivo
+    FROM delivery_daily_status
+    WHERE order_id = ANY($1::int[])
+  `, [pedidoIds]);
+
+  const statusPorPedidoYFecha = {};
+  for (const row of dailyStatusRes.rows) {
+    if (!statusPorPedidoYFecha[row.order_id]) statusPorPedidoYFecha[row.order_id] = {};
+    const fechaStr = dayjs(row.fecha).format('YYYY-MM-DD');
+    statusPorPedidoYFecha[row.order_id][fechaStr] = row.status;
+  }
+
   // 4️⃣ Armar estructura final con fecha_dia_por_dia
   const pedidosConItems = pedidos.map(pedido => {
     const items = itemsPorPedido[pedido.id] || [];
@@ -713,6 +727,7 @@ for (const item of items) {
 const pedidoAgrupado = agruparItemsPorTipo(items);
 pedidoAgrupado.fecha_dia_por_dia = fechaPorDia;
 pedidoAgrupado.tarta_fecha = tartaFecha;
+pedidoAgrupado.daily_status = statusPorPedidoYFecha[pedido.id] || {};
 
 
     return {

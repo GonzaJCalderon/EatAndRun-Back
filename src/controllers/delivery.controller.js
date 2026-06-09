@@ -59,8 +59,75 @@ export const getMyDeliveries = async (req, res) => {
   }
 };
 
+export const getDailyTasks = async (req, res) => {
+  try {
+    const deliveryId = req.user.id;
+    const { fecha, desde, hasta } = req.query; 
 
+    let filtros = `WHERE o.delivery_id = $1`;
+    const valores = [deliveryId];
 
+    if (fecha) {
+      filtros += ` AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.fecha_dia = $2::date)`;
+      valores.push(fecha);
+    } else if (desde && hasta) {
+      filtros += ` AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.fecha_dia BETWEEN $2::date AND $3::date)`;
+      valores.push(desde, hasta);
+    } else {
+      return res.status(400).json({ error: 'Falta rango de fechas' });
+    }
+
+    const pedidos = await getPedidosConItems(filtros, valores);
+    res.json(pedidos);
+  } catch (err) {
+    console.error('❌ Error al obtener daily tasks:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
+
+export const getUnassignedDailyTasks = async (req, res) => {
+  try {
+    const { fecha, desde, hasta } = req.query;
+
+    let filtros = `WHERE o.status IN ('pendiente', 'preparando') AND o.delivery_id IS NULL`;
+    const valores = [];
+
+    if (fecha) {
+      filtros += ` AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.fecha_dia = $1::date)`;
+      valores.push(fecha);
+    } else if (desde && hasta) {
+      filtros += ` AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.fecha_dia BETWEEN $1::date AND $2::date)`;
+      valores.push(desde, hasta);
+    } else {
+      return res.status(400).json({ error: 'Falta rango de fechas' });
+    }
+
+    const pedidos = await getPedidosConItems(filtros, valores);
+    res.json(pedidos);
+  } catch (err) {
+    console.error('❌ Error al obtener unassigned daily tasks:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
+
+export const updateDailyTaskStatus = async (req, res) => {
+  try {
+    const { order_id, fecha } = req.params;
+    const { status, motivo } = req.body;
+
+    await pool.query(`
+      INSERT INTO delivery_daily_status (order_id, fecha, status, motivo)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (order_id, fecha) 
+      DO UPDATE SET status = EXCLUDED.status, motivo = EXCLUDED.motivo, updated_at = NOW()
+    `, [order_id, fecha, status, motivo || null]);
+
+    res.json({ message: 'Estado diario actualizado correctamente' });
+  } catch (err) {
+    console.error('❌ Error actualizando estado diario:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
 
 
 export const markAsDelivered = async (req, res) => {

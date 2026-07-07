@@ -28,7 +28,8 @@ const app = express();
 
 // ✅ CORS configurado para producción
 const allowedOrigins = [
-  'https://eatandrun.shop',    // 👈 tu frontend en Hostinger
+  'https://eatandrun.com.ar',  // 👈 frontend en Vercel
+  'https://www.eatandrun.com.ar', // 👈 frontend con www
   'http://localhost:5173',     // 👈 útil para desarrollo local
   'http://localhost:4000',     // 👈 para que el Swagger local pueda pegar a producción
   'https://eatandrun-back-production.up.railway.app' // 👈 por seguridad propia

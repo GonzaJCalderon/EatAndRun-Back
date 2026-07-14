@@ -1,16 +1,25 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const EMAIL_FROM = process.env.EMAIL_FROM || '"Eat & Run" <pedidos@eatandrun.com.ar>';
 
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_PORT == 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
 export const sendResetPasswordEmail = async (to, nombre, link) => {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('⚠️ No se envió correo de recuperación porque no está configurado RESEND_API_KEY');
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+    console.warn('⚠️ No se envió correo de recuperación porque no están configuradas las variables SMTP');
     return null;
   }
 
   try {
-    await resend.emails.send({
+    const info = await transporter.sendMail({
       from: EMAIL_FROM,
       to,
       subject: '🔒 Recuperación de contraseña — Eat & Run',
@@ -34,15 +43,15 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
         </div>
       `
     });
-    console.log(`✅ Correo de recuperación enviado a ${to}`);
+    console.log(`✅ Correo de recuperación enviado a ${to} (${info.messageId})`);
   } catch (error) {
     console.error('❌ Error enviando correo de recuperación:', error);
   }
 };
 
 export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('⚠️ No se envió correo de bienvenida porque no está configurado RESEND_API_KEY');
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+    console.warn('⚠️ No se envió correo de bienvenida porque no están configuradas las variables SMTP');
     return null;
   }
 
@@ -54,7 +63,7 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
     : '';
 
   try {
-    await resend.emails.send({
+    const info = await transporter.sendMail({
       from: EMAIL_FROM,
       to,
       subject: '👋 Bienvenido a Eat & Run',
@@ -75,7 +84,7 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
         </div>
       `
     });
-    console.log(`✅ Correo de bienvenida enviado a ${to}`);
+    console.log(`✅ Correo de bienvenida enviado a ${to} (${info.messageId})`);
   } catch (error) {
     console.error('❌ Error enviando correo de bienvenida:', error);
   }

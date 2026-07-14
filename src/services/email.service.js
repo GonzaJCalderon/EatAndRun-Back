@@ -1,12 +1,21 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { config } from '../../config/env.js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const EMAIL_FROM = process.env.EMAIL_FROM || '"Eat & Run" <pedidos@eatandrun.com.ar>';
 
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_PORT == 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
 export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, total, items) => {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('⚠️ No se envió correo porque no está configurado RESEND_API_KEY');
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+    console.warn('⚠️ No se envió correo porque no están configuradas las variables SMTP');
     return null;
   }
 
@@ -41,15 +50,15 @@ export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, tot
   `;
 
   try {
-    const data = await resend.emails.send({
+    const info = await transporter.sendMail({
       from: EMAIL_FROM,
-      to: [toEmail],
+      to: toEmail,
       subject: `🥗 Confirmación de Pedido #${orderId} - Eat & Run`,
       html: htmlContent,
     });
     
-    console.log('✅ Correo enviado con éxito:', data.id);
-    return data;
+    console.log('✅ Correo enviado con éxito:', info.messageId);
+    return info;
   } catch (error) {
     console.error('❌ Error enviando correo de confirmación:', error);
     return null;

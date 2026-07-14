@@ -26,6 +26,9 @@ import menuRoutes from './src/routes/menu.routes.js';
 
 const app = express();
 
+// ✅ Configuración esencial para que express-rate-limit funcione en Railway/Vercel (proxies)
+app.set('trust proxy', 1);
+
 // ✅ CORS configurado para producción
 const allowedOrigins = [
   'https://eatandrun.com.ar',  // 👈 frontend en Vercel

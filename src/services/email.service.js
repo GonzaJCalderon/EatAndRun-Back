@@ -42,7 +42,10 @@ export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, tot
   }).join('');
 
   const htmlContent = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
+      <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea; margin: -20px -20px 20px -20px;">
+        <img src="https://eatandrun.com.ar/fotos/logo.png" alt="Eat & Run" style="width: 200px; display: inline-block; padding: 25px 0;" />
+      </div>
       <h2 style="color: #4CAF50; text-align: center;">¡Gracias por tu pedido, ${userName}! 🥗</h2>
       <p style="font-size: 16px; color: #333;">Hemos recibido tu pedido correctamente. Acá tenés el detalle:</p>
       

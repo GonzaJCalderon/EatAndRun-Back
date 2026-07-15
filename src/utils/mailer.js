@@ -42,7 +42,9 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
       `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-            <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1751292009/20250630_1042_Banner_Minimalista_Eat_Run_remix_01jz0h24fteaf9td6f72n9kznd_af3wg7.png" alt="Eat & Run" style="width: 100%; display: block;" />
+            <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea;">
+              <img src="https://eatandrun.com.ar/fotos/logo.png" alt="Eat & Run" style="width: 200px; display: inline-block; padding: 25px 0;" />
+            </div>
             <div style="padding: 30px; color: #333;">
               <h2 style="color: #4caf50;">Hola ${nombre} 🔐</h2>
               <p>Recibimos una solicitud para recuperar tu contraseña en <strong>Eat & Run</strong>. Hacé clic en el botón de abajo para restablecerla:</p>
@@ -82,7 +84,9 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
       `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-            <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1751292009/20250630_1042_Banner_Minimalista_Eat_Run_remix_01jz0h24fteaf9td6f72n9kznd_af3wg7.png" alt="Eat & Run" style="width: 100%; display: block;" />
+            <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea;">
+              <img src="https://eatandrun.com.ar/fotos/logo.png" alt="Eat & Run" style="width: 200px; display: inline-block; padding: 25px 0;" />
+            </div>
             <div style="padding: 30px; color: #333;">
               <h2 style="color: #4caf50;">Hola ${nombre} 👋</h2>
               <p>Gracias por registrarte en <strong>Eat & Run</strong>. ¡Estamos felices de tenerte con nosotros!</p>

@@ -1,45 +1,27 @@
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-const EMAIL_FROM_ADDRESS = 'pedidos@eatandrun.com.ar';
-const EMAIL_FROM_NAME = 'Eat & Run';
+import nodemailer from 'nodemailer';
 
-const sendBrevoEmail = async (toEmail, toName, subject, htmlContent) => {
-  if (!BREVO_API_KEY) {
-    console.warn('⚠️ No se envió correo porque no está configurada la variable BREVO_API_KEY');
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Eat & Run';
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.SMTP_USER, // Acá irá el correo de Gmail
+    pass: process.env.SMTP_PASS, // Acá irá la contraseña de 16 letras
+  },
+});
+
+export const sendResetPasswordEmail = async (to, nombre, link) => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn('⚠️ No se enviará correo porque faltan credenciales de Gmail');
     return null;
   }
 
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'accept': 'application/json',
-      'api-key': BREVO_API_KEY,
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      sender: { name: EMAIL_FROM_NAME, email: EMAIL_FROM_ADDRESS },
-      to: [{ email: toEmail, name: toName || toEmail }],
-      subject: subject,
-      htmlContent: htmlContent
-    })
-  });
-
-  if (!response.ok) {
-    const errorData = await response.text();
-    throw new Error(`Brevo API Error: ${response.status} ${errorData}`);
-  }
-
-  const data = await response.json();
-  return data;
-};
-
-export const sendResetPasswordEmail = async (to, nombre, link) => {
-
   try {
-    const data = await sendBrevoEmail(
+    const info = await transporter.sendMail({
+      from: EMAIL_FROM,
       to,
-      nombre,
-      '🔒 Recuperación de contraseña — Eat & Run',
-      `
+      subject: '🔒 Recuperación de contraseña — Eat & Run',
+      html: `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
             <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1751292009/20250630_1042_Banner_Minimalista_Eat_Run_remix_01jz0h24fteaf9td6f72n9kznd_af3wg7.png" alt="Eat & Run" style="width: 100%; display: block;" />
@@ -58,14 +40,18 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
           </div>
         </div>
       `
-    );
-    console.log(`✅ Correo de recuperación enviado a ${to} (MessageID: ${data?.messageId})`);
+    });
+    console.log(`✅ Correo de recuperación enviado a ${to} (${info.messageId})`);
   } catch (error) {
     console.error('❌ Error enviando correo de recuperación:', error);
   }
 };
 
 export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn('⚠️ No se enviará correo porque faltan credenciales de Gmail');
+    return null;
+  }
 
   const passwordSection = passwordAuto 
     ? `<p style="margin-top: 15px; background: #e8f5e9; padding: 10px; border-radius: 5px;">
@@ -75,11 +61,11 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
     : '';
 
   try {
-    const data = await sendBrevoEmail(
+    const info = await transporter.sendMail({
+      from: EMAIL_FROM,
       to,
-      nombre,
-      '👋 Bienvenido a Eat & Run',
-      `
+      subject: '👋 Bienvenido a Eat & Run',
+      html: `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
             <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1751292009/20250630_1042_Banner_Minimalista_Eat_Run_remix_01jz0h24fteaf9td6f72n9kznd_af3wg7.png" alt="Eat & Run" style="width: 100%; display: block;" />
@@ -95,8 +81,8 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
           </div>
         </div>
       `
-    );
-    console.log(`✅ Correo de bienvenida enviado a ${to} (MessageID: ${data?.messageId})`);
+    });
+    console.log(`✅ Correo de bienvenida enviado a ${to} (${info.messageId})`);
   } catch (error) {
     console.error('❌ Error enviando correo de bienvenida:', error);
   }

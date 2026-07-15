@@ -42,7 +42,7 @@ export const sendResetPasswordEmail = async (to, nombre, link) => {
       `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-            <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea; padding: 25px 0;">
+            <div style="background-color: #ffffff; text-align: center; border-bottom: 1px solid #eaeaea; padding: 25px 0;">
               <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1784118486/eatandrun_logos/lscs4gxpwgmyifdxfxvg.jpg" alt="Eat & Run" width="200" style="display: block; margin: 0 auto; border: 0;" />
             </div>
             <div style="padding: 30px; color: #333;">
@@ -84,7 +84,7 @@ export const sendWelcomeEmail = async (to, nombre, passwordAuto) => {
       `
         <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
           <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-            <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea; padding: 25px 0;">
+            <div style="background-color: #ffffff; text-align: center; border-bottom: 1px solid #eaeaea; padding: 25px 0;">
               <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1784118486/eatandrun_logos/lscs4gxpwgmyifdxfxvg.jpg" alt="Eat & Run" width="200" style="display: block; margin: 0 auto; border: 0;" />
             </div>
             <div style="padding: 30px; color: #333;">

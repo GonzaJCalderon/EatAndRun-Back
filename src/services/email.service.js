@@ -44,7 +44,7 @@ export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, tot
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
       <div style="background-color: #f8f9fa; text-align: center; border-bottom: 1px solid #eaeaea; margin: -20px -20px 20px -20px; padding: 25px 0;">
-        <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1784117570/eatandrun_logos/kfs9oerg8pcgunajyjql.png" alt="Eat & Run" width="200" style="display: block; margin: 0 auto; border: 0;" />
+        <img src="https://res.cloudinary.com/dwiga4jg8/image/upload/v1784118486/eatandrun_logos/lscs4gxpwgmyifdxfxvg.jpg" alt="Eat & Run" width="200" style="display: block; margin: 0 auto; border: 0;" />
       </div>
       <h2 style="color: #4CAF50; text-align: center;">¡Gracias por tu pedido, ${userName}! 🥗</h2>
       <p style="font-size: 16px; color: #333;">Hemos recibido tu pedido correctamente. Acá tenés el detalle:</p>

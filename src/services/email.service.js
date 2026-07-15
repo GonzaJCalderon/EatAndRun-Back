@@ -1,21 +1,40 @@
-import nodemailer from 'nodemailer';
 import { config } from '../../config/env.js';
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Eat & Run';
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const EMAIL_FROM_ADDRESS = 'pedidos@eatandrun.com.ar';
+const EMAIL_FROM_NAME = 'Eat & Run';
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
-export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, total, items) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn('⚠️ No se enviará correo porque faltan credenciales de Gmail');
+const sendBrevoEmail = async (toEmail, toName, subject, htmlContent) => {
+  if (!BREVO_API_KEY) {
+    console.warn('⚠️ No se envió correo porque no está configurada la variable BREVO_API_KEY');
     return null;
   }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': BREVO_API_KEY,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: { name: EMAIL_FROM_NAME, email: EMAIL_FROM_ADDRESS },
+      to: [{ email: toEmail, name: toName || toEmail }],
+      subject: subject,
+      htmlContent: htmlContent
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(`Brevo API Error: ${response.status} ${errorData}`);
+  }
+
+  const data = await response.json();
+  return data;
+};
+
+export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, total, items) => {
 
   // Generar HTML para los items
   const itemsHtml = items.map(item => {
@@ -48,15 +67,15 @@ export const sendOrderConfirmationEmail = async (toEmail, userName, orderId, tot
   `;
 
   try {
-    const info = await transporter.sendMail({
-      from: EMAIL_FROM,
-      to: toEmail,
-      subject: `🥗 Confirmación de Pedido #${orderId} - Eat & Run`,
-      html: htmlContent,
-    });
+    const data = await sendBrevoEmail(
+      toEmail,
+      userName,
+      `🥗 Confirmación de Pedido #${orderId} - Eat & Run`,
+      htmlContent
+    );
     
-    console.log('✅ Correo enviado con éxito:', info.messageId);
-    return info;
+    console.log('✅ Correo enviado con éxito (MessageID:', data?.messageId, ')');
+    return data;
   } catch (error) {
     console.error('❌ Error enviando correo de confirmación:', error);
     return null;
